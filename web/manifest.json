@@ -1,0 +1,35 @@
+{
+    "name": "广应课课表",
+    "short_name": "广应课课表",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#F5F5F7",
+    "theme_color": "#2C63D4",
+    "description": "广应课课表：从教务系统实时拉取的课表，支持周次切换",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

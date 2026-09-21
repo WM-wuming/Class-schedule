@@ -1,0 +1,79 @@
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<title>教室查询</title>
+</head>
+<body>
+<div class="main_box">
+	<div class="kbxx_title">教室空余查询</div>
+	<form id="Form1" name="Form1" action="/gzasc_jsxsd/kbcx/kbxx_classroom_ifr" method="post">
+		<select name="xqid" id="xqid" class="form-control">
+			<option value="">全部校区</option>
+			<option value="19" selected="selected">肇庆校区</option>
+		</select>
+		<select name="jzwid" id="jzwid" class="form-control">
+			<option value="">全部教学楼</option>
+			<option value="00001" selected="selected">第一教学楼</option>
+			<option value="00002">第二教学楼</option>
+		</select>
+		<input type="text" name="skjs" id="skjs" value="">
+	</form>
+
+	<table id="kbtable" class="table table-bordered">
+		<tr>
+			<th rowspan="2">教室</th>
+			<th rowspan="2">容量</th>
+			<th colspan="6">星期一</th>
+		</tr>
+		<tr>
+			<th>第1-2节</th>
+			<th>第3-4节</th>
+			<th>第5-6节</th>
+			<th>第7-8节</th>
+			<th>第9-10节</th>
+			<th>第11-12节</th>
+		</tr>
+		<tr>
+			<td>J1-101</td>
+			<td>60</td>
+			<td></td>
+			<td>高等数学<br/>王可芸</td>
+			<td></td>
+			<td></td>
+			<td>大学英语<br/>李灏良</td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>J1-102</td>
+			<td>60</td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>J1-103</td>
+			<td>120</td>
+			<td>线性代数<br/>陈志强</td>
+			<td>线性代数<br/>陈志强</td>
+			<td></td>
+			<td>概率论与数理统计<br/>周敏</td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>J1-201</td>
+			<td>90</td>
+			<td></td>
+			<td></td>
+			<td>程序设计基础<br/>吴建国</td>
+			<td>程序设计基础<br/>吴建国</td>
+			<td></td>
+			<td>&nbsp;</td>
+		</tr>
+	</table>
+</div>
+</body>
+</html>

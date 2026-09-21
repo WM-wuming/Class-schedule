@@ -1,0 +1,39 @@
+<!--
+  合成夹具（不是真实抓取）：用来测试「有选课轮次」时的解析分支。
+  结构按真实页面 xsxk/xklc_list 的表格抄写：
+  表头 学年学期 / 选课名称 / 选课时间 / 操作，操作列里是 jrxk('轮次id')。
+  真实页面当前返回「未查询到数据」（见 fixtures/xk_empty.html）。
+-->
+<!DOCTYPE html>
+<html>
+<head><title>学生选课</title></head>
+<body>
+<div class="Nsb_layout_r title">学生选课中心</div>
+<table id="tbKxkc" width="100%" border="0" cellspacing="0" cellpadding="0" class="Nsb_r_list Nsb_table">
+	<tr style="height:25px;background-color:#D1E4F8;" align="left">
+		<th class="Nsb_r_list_thb" scope="col" align="center">学年学期</th>
+		<th class="Nsb_r_list_thb" scope="col" align="center">选课名称</th>
+		<th class="Nsb_r_list_thb" scope="col" align="center">选课时间</th>
+		<th class="Nsb_r_list_thb" scope="col" align="center">操作</th>
+	</tr>
+	<tr>
+		<td align="center">2026-2027-1</td>
+		<td align="left">2026-2027学年第一学期 通识选修课选课</td>
+		<td align="center">2026-09-28 08:00 ~ 2026-10-08 23:59</td>
+		<td align="center"><a href="javascript:jrxk('2026092801')">进入选课</a></td>
+	</tr>
+	<tr>
+		<td align="center">2026-2027-1</td>
+		<td align="left">2026-2027学年第一学期 体育项目选课</td>
+		<td align="center">2026-09-21 12:00 ~ 2026-09-25 23:59</td>
+		<td align="center"><a href="javascript:jrxk('2026092102')">进入选课</a></td>
+	</tr>
+</table>
+<script language="javascript">
+	function jrxk(jx0502zbid){
+		var url = "/gzasc_jsxsd/xsxk/xklc_view?jx0502zbid="+jx0502zbid;
+		window.location.href=url;
+	}
+</script>
+</body>
+</html>
