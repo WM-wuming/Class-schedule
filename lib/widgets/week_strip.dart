@@ -23,7 +23,7 @@ class WeekStrip extends StatelessWidget {
   final ValueChanged<ScheduleDay>? onDayTap;
 
   /// 日期条高度（设计稿尺寸，会随字号缩放）。
-  static const double height = 58;
+  static const double height = 50;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +77,7 @@ class _DayHeader extends StatelessWidget {
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
           // 横向留白不跟字号缩放：列宽是天平分的，跟着放大就把日期挤掉了。
-          padding: EdgeInsets.symmetric(horizontal: 10, vertical: scale.px(6)),
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: scale.px(4)),
           decoration: BoxDecoration(
             color: isToday ? GridColors.today : null,
             borderRadius: BorderRadius.circular(scale.px(10)),
@@ -94,7 +94,7 @@ class _DayHeader extends StatelessWidget {
                   fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
-              SizedBox(height: scale.px(4)),
+              SizedBox(height: scale.px(2)),
               Text(
                 day.dateLabel,
                 style: TextStyle(color: foreground, fontSize: 11, height: 1.1),

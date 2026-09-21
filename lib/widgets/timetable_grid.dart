@@ -176,16 +176,16 @@ class TimetableGrid extends StatefulWidget {
   final ValueChanged<CourseSession>? onSessionTap;
 
   /// 左侧时间轴的宽度（设计稿尺寸，会随字号缩放）。
-  static const double gutterWidth = 56;
+  static const double gutterWidth = 40;
 
   /// 每一节的高度（设计稿尺寸，会随字号缩放）。
-  static const double periodHeight = 70;
+  static const double periodHeight = 62;
 
   /// 休息行的高度（设计稿尺寸，会随字号缩放）。
-  static const double breakHeight = 30;
+  static const double breakHeight = 26;
 
   /// 相邻两节课之间空出的距离（设计稿尺寸，会随字号缩放）。
-  static const double blockGap = 6;
+  static const double blockGap = 4;
 
   /// 课程块离本列左右边缘的距离。
   ///
@@ -218,7 +218,7 @@ class _TimetableGridState extends State<TimetableGrid> {
       controller: _controller,
       child: SingleChildScrollView(
         controller: _controller,
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.only(bottom: 8),
         child: SizedBox(
           height: metrics.totalHeight,
           child: Row(
@@ -280,7 +280,9 @@ class _Gutter extends StatelessWidget {
 
     return ColoredBox(
       color: GridColors.gutter,
+      // 文字在时间轴里水平居中，与右边课程列的内容拉开视觉距离。
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
           for (final Period period in metrics.periods) ...<Widget>[
             SizedBox(
@@ -290,6 +292,7 @@ class _Gutter extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     period.label,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: GridColors.textPrimary,
                       fontSize: 11,
@@ -301,6 +304,8 @@ class _Gutter extends StatelessWidget {
                     SizedBox(height: scale.px(3)),
                     Text(
                       period.start,
+                      maxLines: 1,
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: GridColors.textSecondary,
                         fontSize: 10,
@@ -309,6 +314,8 @@ class _Gutter extends StatelessWidget {
                     ),
                     Text(
                       period.end,
+                      maxLines: 1,
+                      textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: GridColors.textSecondary,
                         fontSize: 10,
@@ -501,9 +508,9 @@ class CourseBlock extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Text(
+                      // 不限行数：课程名完整显示，超出格高的部分由外层
+                      // ClipRRect 静默裁掉（不出现「...」）。
                       session.course.name,
-                      maxLines: compact ? 2 : 3,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: color.accent,
                         fontSize: 13,
@@ -514,8 +521,6 @@ class CourseBlock extends StatelessWidget {
                     SizedBox(height: scale.px(3)),
                     Text(
                       '@${session.course.location}',
-                      maxLines: compact ? 1 : 2,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: GridColors.textSecondary,
                         fontSize: 10.5,
@@ -525,8 +530,6 @@ class CourseBlock extends StatelessWidget {
                     if (!compact && showTeacher)
                       Text(
                         session.course.teacher,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: GridColors.textSecondary,
                           fontSize: 10.5,

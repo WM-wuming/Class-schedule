@@ -46,4 +46,17 @@ class MethodChannelKeepAlivePlatform implements KeepAlivePlatform {
   @override
   Future<bool> openAppDetailsSettings() async =>
       await _invoke<bool>('openAppDetailsSettings') ?? false;
+
+  @override
+  Future<bool> openUrl(String url) async {
+    try {
+      return await _channel.invokeMethod<bool>('openUrl', <String, String>{
+            'url': url,
+          }) ??
+          false;
+    } catch (error) {
+      debugPrint('打开链接失败：$error');
+      return false;
+    }
+  }
 }

@@ -2,6 +2,7 @@ import 'package:class_schedule/data/keep_alive_store.dart';
 import 'package:class_schedule/models/keep_alive.dart';
 import 'package:class_schedule/screens/settings_screen.dart';
 import 'package:class_schedule/state/schedule_controller.dart';
+import 'package:class_schedule/widgets/sheet_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
@@ -25,7 +26,10 @@ void main() {
     });
 
     test('缺字段的存档退回默认值（不开机自启）', () {
-      expect(KeepAliveSettings.fromJson(<String, dynamic>{}), const KeepAliveSettings());
+      expect(
+        KeepAliveSettings.fromJson(<String, dynamic>{}),
+        const KeepAliveSettings(),
+      );
       expect(
         KeepAliveSettings.fromJson(<String, dynamic>{'autoStart': 'yes'}),
         const KeepAliveSettings(),
@@ -190,6 +194,9 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpWidget(app());
       await tester.pumpAndSettle();
+      // 设置页改成了二级页面结构：保活类在「保活」子页里。
+      await tester.tap(find.text('保活'));
+      await tester.pumpAndSettle();
     }
 
     setUp(() {
@@ -244,14 +251,41 @@ void main() {
 
       expect(platform.batteryRequests, 1);
       // 用整句匹配：设置页被弹层盖着的那行副标题申请成功后也含「已放行」三个字。
-      expect(find.textContaining('已放行：本应用在电池优化白名单里'), findsOneWidget,
-          reason: '申请成功后状态卡片要从黄变绿');
+      expect(
+        find.textContaining('已放行：本应用在电池优化白名单里'),
+        findsOneWidget,
+        reason: '申请成功后状态卡片要从黄变绿',
+      );
       expect(find.textContaining('尚未放行'), findsNothing);
 
       // 去自启动设置的按钮也在弹层里。
       await tester.tap(find.text('去自启动设置'));
       await tester.pumpAndSettle();
       expect(platform.autoStartOpens, 1);
+    });
+
+    testWidgets('保活弹层有白色 Material 底（forui 弹层不自带背景）', (
+      WidgetTester tester,
+    ) async {
+      await pumpToKeepAlive(tester);
+
+      await tester.tap(find.text('后台耗电限制取消指引'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('保活指引'), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('保活指引'),
+          matching: find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is Material && widget.color == sheetSurfaceColor,
+          ),
+        ),
+        findsOneWidget,
+        reason: '弹层内容必须包在 SheetSurface（玻璃底 + Material）里，否则透出被压暗的页面',
+      );
+      // 液态玻璃：弹层本体一块 BackdropFilter，背后的 barrier 一块。
+      expect(find.byType(BackdropFilter), findsAtLeastNWidgets(2));
     });
 
     testWidgets('不支持的平台上只给一句说明', (WidgetTester tester) async {

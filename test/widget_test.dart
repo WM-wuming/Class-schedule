@@ -50,7 +50,7 @@ void main() {
     await tester.pumpWidget(jwApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('广应课课表'), findsOneWidget);
+    expect(find.text('广应科课表'), findsOneWidget);
     // 两条「线性代数」：周一 5-6 节、周三 1-2 节
     expect(find.text('线性代数'), findsNWidgets(2));
     expect(find.text('概率论与数理统计'), findsNWidgets(2));
@@ -60,8 +60,7 @@ void main() {
     expect(find.text('大学体育I'), findsOneWidget);
     expect(find.text('大学日语Ⅰ'), findsOneWidget);
     expect(find.text('午休'), findsOneWidget);
-    // 晚休行已移除：第八节与第九节之间不再插分隔行。
-    expect(find.text('晚休'), findsNothing);
+    expect(find.text('晚休'), findsOneWidget);
     expect(find.text('第一节'), findsOneWidget);
     expect(find.text('第十一节'), findsOneWidget);
   });
@@ -89,20 +88,22 @@ void main() {
     expect(find.text('选择周次'), findsOneWidget);
   });
 
-  testWidgets('菜单可以进入设置页并让显示选项生效', (WidgetTester tester) async {
+  testWidgets('我的信息页可以进入设置页并让显示选项生效', (WidgetTester tester) async {
     await tester.pumpWidget(jwApp());
     await tester.pumpAndSettle();
 
-    // 右上角「⋯」-> 底部菜单（左上角的三条杠按钮已移除）
-    await tester.tap(find.byIcon(FLucideIcons.ellipsis));
-    await tester.pumpAndSettle();
-    expect(find.text('回到本周'), findsOneWidget);
-    expect(find.text('刷新课表'), findsOneWidget);
+    // 右上角现在是刷新按钮（三个点菜单已移除，设置入口挪到「我的信息」页）
+    expect(find.byIcon(FLucideIcons.refreshCw), findsOneWidget);
 
+    await tester.tap(find.text('我的信息'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
+    // 设置页是二级页面结构：「学期 / 显示 / 周次」合并在「课表」子页里。
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
 
-    // 设置页第一组是「学期」；「数据来源」整组已经移除
+    // 课表二级页第一组是「学期」；「数据来源」整组已经移除
     expect(find.text('学期'), findsOneWidget);
     expect(find.text('开学日期'), findsOneWidget);
     expect(find.text('数据来源'), findsNothing);
@@ -126,8 +127,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<FSwitch>(find.byType(FSwitch).first).value, isFalse);
 
-    // 返回首页后周六那一列应该消失
+    // 返回到「我的信息」（课表二级页 → 设置主页 → 我的信息，共两次返回），
+    // 再切回课表 Tab —— 周六那一列应该消失
     await tester.tap(find.byIcon(FLucideIcons.chevronLeft).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(FLucideIcons.chevronLeft).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
     expect(find.text('9/26'), findsNothing);
     expect(find.text('9/25'), findsOneWidget);
@@ -153,6 +159,41 @@ void main() {
     expect(weekLabel(), '第 $start 周');
   });
 
+  testWidgets('最后一周再往后翻出现「放假啦」，再翻回第 1 周', (WidgetTester tester) async {
+    await tester.pumpWidget(jwApp());
+    await tester.pumpAndSettle();
+
+    final BuildContext gridContext = tester.element(
+      find.byType(TimetableGrid).first,
+    );
+    final ScheduleController controller = ScheduleScope.of(gridContext);
+    controller.goToWeek(controller.term.totalWeeks);
+    await tester.pumpAndSettle();
+    expect(find.text('放假啦！'), findsNothing);
+
+    // 往后翻（左滑）：最后一周之后是放假页
+    await tester.fling(find.byType(TimetableGrid), const Offset(-400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('放假啦！'), findsOneWidget);
+
+    // 放假页再往后翻：回到第 1 周
+    await tester.fling(find.text('放假啦！'), const Offset(-400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('放假啦！'), findsNothing);
+    expect(controller.currentWeek, 1);
+
+    // 再进一次放假页，往回翻（右滑）退回最后一周
+    controller.goToWeek(controller.term.totalWeeks);
+    await tester.pumpAndSettle();
+    await tester.fling(find.byType(TimetableGrid), const Offset(-400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('放假啦！'), findsOneWidget);
+    await tester.fling(find.text('放假啦！'), const Offset(400, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('放假啦！'), findsNothing);
+    expect(controller.currentWeek, controller.term.totalWeeks);
+  });
+
   group('网格几何', () {
     /// 行高关系：相邻节次相差一节，跨过午休要多出一个分隔行。
     testWidgets('节次行高与午休分隔行对得上', (WidgetTester tester) async {
@@ -174,10 +215,10 @@ void main() {
         centerY('第五节') - centerY('第四节'),
         closeTo(TimetableGrid.periodHeight + TimetableGrid.breakHeight, 0.6),
       );
-      // 第八节 与 第九节 之间不再夹「晚休」，两节直接相邻
+      // 第八节 与 第九节 之间夹着「晚休」
       expect(
         centerY('第九节') - centerY('第八节'),
-        closeTo(TimetableGrid.periodHeight, 0.6),
+        closeTo(TimetableGrid.periodHeight + TimetableGrid.breakHeight, 0.6),
       );
       expect(
         centerY('第十一节') - centerY('第十节'),
@@ -207,7 +248,7 @@ void main() {
       final double gridWidth = tester.getSize(find.byType(TimetableGrid)).width;
       final double columnWidth = (gridWidth - TimetableGrid.gutterWidth) / 7;
 
-      // 时间轴占左侧固定宽度，节次名居中
+      // 时间轴占左侧固定宽度，节次名在时间轴里水平居中
       expect(
         tester.getCenter(find.text('第一节')).dx,
         closeTo(TimetableGrid.gutterWidth / 2, 0.6),
@@ -286,13 +327,13 @@ void main() {
       final Rect linearMon = blockOf('线性代数');
       expect(linearMon.width, closeTo(columnWidth - 6, 0.6));
 
-      // 周二第 9-11 节「军事理论」：跨三节，前面只隔着午休一个分隔行
+      // 周二第 9-11 节「军事理论」：跨三节，前面隔着午休、晚休两个分隔行
       final Rect military = blockOf('军事理论');
       expect(military.height, closeTo(TimetableGrid.periodHeight * 3, 0.6));
       expect(
         military.top - probabilityMon.top,
         closeTo(
-          TimetableGrid.periodHeight * 6 + TimetableGrid.breakHeight,
+          TimetableGrid.periodHeight * 6 + TimetableGrid.breakHeight * 2,
           0.6,
         ),
       );

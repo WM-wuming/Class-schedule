@@ -484,7 +484,36 @@ void main() {
       expect(find.text('退出登录'), findsNothing, reason: '什么都没存过就没什么可退的');
     });
 
-    testWidgets('点「退出登录」后入口消失，账号快照也清掉', (WidgetTester tester) async {
+    testWidgets('点「退出登录」先弹二次确认，取消则什么都不做', (WidgetTester tester) async {
+      final FakeAccountStore store = FakeAccountStore(storedAccount);
+      await tester.pumpWidget(
+        jwApp(
+          transport: jwExpiredTransport,
+          accountStore: store,
+          restoredAccount: storedAccount,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('我的信息'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('退出登录'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('清除本机保存的登录信息'),
+        findsOneWidget,
+        reason: '要先弹二次确认',
+      );
+
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+
+      expect(store.value, isNotNull, reason: '取消后账号还在');
+      expect(find.text('退出登录'), findsOneWidget, reason: '入口还在');
+    });
+
+    testWidgets('确认「退出」后入口消失，账号快照也清掉', (WidgetTester tester) async {
       final FakeAccountStore store = FakeAccountStore(storedAccount);
       await tester.pumpWidget(
         jwApp(
@@ -506,6 +535,8 @@ void main() {
 
       await tester.tap(find.text('退出登录'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('退出'));
+      await tester.pumpAndSettle();
 
       expect(store.value, isNull);
       expect(find.text('退出登录'), findsNothing);
@@ -526,6 +557,34 @@ void main() {
 
       expect(find.textContaining('这是本机保存的账号信息'), findsNothing);
       expect(find.textContaining('登录信息（会话与学号）保存在本机'), findsOneWidget);
+    });
+
+    testWidgets('关于弹层显示版本与项目地址，Star 按钮点了不炸', (WidgetTester tester) async {
+      await tester.pumpWidget(jwApp(transport: jwExpiredTransport));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('我的信息'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('关于'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('广应科课表'), findsOneWidget);
+      expect(find.textContaining('版本 1.1.39'), findsOneWidget);
+      expect(
+        find.text('https://github.com/WM-wuming/Class-schedule'),
+        findsOneWidget,
+      );
+      expect(find.text('去 GitHub 点个 Star'), findsOneWidget);
+
+      // 测试环境没有平台通道，openUrl 静默返回 false，弹层留在原地。
+      await tester.tap(find.text('去 GitHub 点个 Star'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('去 GitHub 点个 Star'),
+        findsOneWidget,
+        reason: '弹层应该还在',
+      );
     });
 
     testWidgets('登录页会预填本机存过的学号', (WidgetTester tester) async {

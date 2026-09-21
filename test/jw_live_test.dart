@@ -127,6 +127,35 @@ void main() {
     expect(board.classrooms, isNotEmpty);
   }, skip: _skipLive);
 
+  test('旧接口 loadkb 能解析出学分与课程属性（副数据源）', () async {
+    HttpOverrides.global = null;
+    final JwTimetableClient client = JwTimetableClient();
+
+    // rq 传该周的星期一。教务第 N 周的星期一恰好就是「本周的星期一」
+    // （主页面按周一到周日口径报当前周次），直接用今天所在周即可。
+    final DateTime monday = JwTimetableClient.mondayOf(DateTime.now());
+    final JwTimetable timetable = await client.fetchWeekByLoadkb(monday);
+
+    debugPrint(
+      'loadkb 对 rq=${monday.toIso8601String().substring(0, 10)} 返回：'
+      '第 ${timetable.week} 周，${timetable.sessions.length} 条排课',
+    );
+    for (final session in timetable.sessions) {
+      debugPrint(
+        '  ${session.course.name} @${session.course.location} '
+        '星期${session.weekday} 第${session.startPeriod}-${session.endPeriod}节 '
+        '学分=${session.course.credits ?? '-'} 属性=${session.course.category ?? '-'}',
+      );
+    }
+
+    expect(timetable.sessions, isNotEmpty);
+    expect(
+      timetable.sessions.every((s) => s.course.credits != null),
+      isTrue,
+      reason: '旧接口每门课都该带学分',
+    );
+  }, skip: _skipLive);
+
   test('性能实测：连接复用 vs 每次重新握手', () async {
     HttpOverrides.global = null;
     final JwTimetableClient client = JwTimetableClient();

@@ -1,10 +1,13 @@
-package com.example.class_schedule
+package wm.gykclass.com
 
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -12,6 +15,17 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val keepAliveChannel = "keep_alive"
     private val widgetChannel = "next_class_widget"
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // 横屏（或平板横持）时，默认的刘海模式 defaultMode 会让系统把整个窗口往内收，
+        // 页面两侧出现黑边、状态栏区域也变成黑底。改成 shortEdges 让应用延伸到刘海区，
+        // 内容是否避开刘海交给 Flutter 侧的 SafeArea 处理。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,6 +42,10 @@ class MainActivity : FlutterActivity() {
                         result.success(openAutoStartSettings())
                     "openAppDetailsSettings" ->
                         result.success(openAppDetailsSettings())
+                    "openUrl" -> {
+                        val url = call.argument<String>("url") ?: ""
+                        result.success(openUrl(url))
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -97,6 +115,15 @@ class MainActivity : FlutterActivity() {
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                     .setData(Uri.parse("package:$packageName"))
             )
+            true
+        } catch (error: Exception) {
+            false
+        }
+
+    /** 用系统浏览器打开外部链接；没有可用的浏览器时返回 false。 */
+    private fun openUrl(url: String): Boolean =
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             true
         } catch (error: Exception) {
             false

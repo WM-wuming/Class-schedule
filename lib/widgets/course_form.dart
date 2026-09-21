@@ -5,6 +5,7 @@ import '../models/custom_course.dart';
 import '../models/week.dart';
 import '../state/schedule_controller.dart';
 import '../theme/course_palette.dart';
+import 'sheet_surface.dart';
 
 /// 弹出「添加课程 / 编辑课程」表单。
 ///
@@ -14,13 +15,14 @@ Future<void> showCustomCourseForm(
   BuildContext context, {
   required ScheduleController controller,
   CustomCourse? editing,
-}) => showFSheet<void>(
+}) => showAppSheet<void>(
   context: context,
-  side: FLayout.btt,
-  builder: (BuildContext sheetContext) => _CustomCourseForm(
-    controller: controller,
-    editing: editing,
-    onDone: () => Navigator.of(sheetContext).maybePop(),
+  builder: (BuildContext sheetContext) => SheetSurface(
+    child: _CustomCourseForm(
+      controller: controller,
+      editing: editing,
+      onDone: () => Navigator.of(sheetContext).maybePop(),
+    ),
   ),
 );
 
@@ -70,7 +72,8 @@ class _CustomCourseFormState extends State<_CustomCourseForm> {
     _startPeriod = editing?.startPeriod ?? 1;
     _endPeriod = editing?.endPeriod ?? 2;
     _startWeek = editing?.startWeek ?? CustomCourse.minWeek;
-    _endWeek = editing?.endWeek ?? _clamp(term.totalWeeks, 1, CustomCourse.maxWeek);
+    _endWeek =
+        editing?.endWeek ?? _clamp(term.totalWeeks, 1, CustomCourse.maxWeek);
   }
 
   @override
@@ -79,6 +82,24 @@ class _CustomCourseFormState extends State<_CustomCourseForm> {
     _location.dispose();
     _teacher.dispose();
     super.dispose();
+  }
+
+  /// 弹出选择弹层并在选中后应用。返回值是选项下标；用户划走返回 null（不动原值）。
+  Future<void> _pickAndApply({
+    required String title,
+    required List<String> labels,
+    required int currentIndex,
+    required ValueChanged<int> onPicked,
+  }) async {
+    final int? picked = await showOptionPickerSheet(
+      context,
+      title: title,
+      labels: labels,
+      current: currentIndex,
+    );
+    if (picked != null) {
+      setState(() => onPicked(picked));
+    }
   }
 
   @override
@@ -138,15 +159,17 @@ class _CustomCourseFormState extends State<_CustomCourseForm> {
               const SizedBox(height: 18),
               _Group(
                 children: <Widget>[
-                  _StepperRow(
+                  _OptionRow(
                     label: '星期',
                     value: '周${_weekdayLabel(_weekday)}',
-                    onPrevious: _weekday > DateTime.monday
-                        ? () => setState(() => _weekday -= 1)
-                        : null,
-                    onNext: _weekday < DateTime.sunday
-                        ? () => setState(() => _weekday += 1)
-                        : null,
+                    onTap: () => _pickAndApply(
+                      title: '选择星期',
+                      labels: const <String>[
+                        '周一', '周二', '周三', '周四', '周五', '周六', '周日',
+                      ],
+                      currentIndex: _weekday - 1,
+                      onPicked: (int index) => _weekday = index + 1,
+                    ),
                   ),
                 ],
               ),
@@ -154,36 +177,42 @@ class _CustomCourseFormState extends State<_CustomCourseForm> {
               const _GroupLabel('节次'),
               _Group(
                 children: <Widget>[
-                  _StepperRow(
+                  _OptionRow(
                     label: '开始',
                     value: '第 $_startPeriod 节',
-                    onPrevious: _startPeriod > CustomCourse.minPeriod
-                        ? () => setState(() => _startPeriod -= 1)
-                        : null,
-                    onNext: _startPeriod < CustomCourse.maxPeriod
-                        ? () => setState(() {
-                            _startPeriod += 1;
-                            // 区间顺过来：起点推到终点之后，终点跟着走。
-                            if (_startPeriod > _endPeriod) {
-                              _endPeriod = _startPeriod;
-                            }
-                          })
-                        : null,
+                    onTap: () => _pickAndApply(
+                      title: '选择开始节次',
+                      labels: List<String>.generate(
+                        CustomCourse.maxPeriod,
+                        (int i) => '第 ${i + 1} 节',
+                      ),
+                      currentIndex: _startPeriod - 1,
+                      onPicked: (int index) {
+                        _startPeriod = index + 1;
+                        // 区间顺过来：起点推到终点之后，终点跟着走。
+                        if (_startPeriod > _endPeriod) {
+                          _endPeriod = _startPeriod;
+                        }
+                      },
+                    ),
                   ),
-                  _StepperRow(
+                  _OptionRow(
                     label: '结束',
                     value: '第 $_endPeriod 节',
-                    onPrevious: _endPeriod > CustomCourse.minPeriod
-                        ? () => setState(() {
-                            _endPeriod -= 1;
-                            if (_endPeriod < _startPeriod) {
-                              _startPeriod = _endPeriod;
-                            }
-                          })
-                        : null,
-                    onNext: _endPeriod < CustomCourse.maxPeriod
-                        ? () => setState(() => _endPeriod += 1)
-                        : null,
+                    onTap: () => _pickAndApply(
+                      title: '选择结束节次',
+                      labels: List<String>.generate(
+                        CustomCourse.maxPeriod,
+                        (int i) => '第 ${i + 1} 节',
+                      ),
+                      currentIndex: _endPeriod - 1,
+                      onPicked: (int index) {
+                        _endPeriod = index + 1;
+                        if (_endPeriod < _startPeriod) {
+                          _startPeriod = _endPeriod;
+                        }
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -191,35 +220,41 @@ class _CustomCourseFormState extends State<_CustomCourseForm> {
               const _GroupLabel('周次'),
               _Group(
                 children: <Widget>[
-                  _StepperRow(
+                  _OptionRow(
                     label: '从',
                     value: '第 $_startWeek 周',
-                    onPrevious: _startWeek > CustomCourse.minWeek
-                        ? () => setState(() => _startWeek -= 1)
-                        : null,
-                    onNext: _startWeek < CustomCourse.maxWeek
-                        ? () => setState(() {
-                            _startWeek += 1;
-                            if (_startWeek > _endWeek) {
-                              _endWeek = _startWeek;
-                            }
-                          })
-                        : null,
+                    onTap: () => _pickAndApply(
+                      title: '选择开始周',
+                      labels: List<String>.generate(
+                        CustomCourse.maxWeek,
+                        (int i) => '第 ${i + 1} 周',
+                      ),
+                      currentIndex: _startWeek - 1,
+                      onPicked: (int index) {
+                        _startWeek = index + 1;
+                        if (_startWeek > _endWeek) {
+                          _endWeek = _startWeek;
+                        }
+                      },
+                    ),
                   ),
-                  _StepperRow(
+                  _OptionRow(
                     label: '到',
                     value: '第 $_endWeek 周',
-                    onPrevious: _endWeek > CustomCourse.minWeek
-                        ? () => setState(() {
-                            _endWeek -= 1;
-                            if (_endWeek < _startWeek) {
-                              _startWeek = _endWeek;
-                            }
-                          })
-                        : null,
-                    onNext: _endWeek < CustomCourse.maxWeek
-                        ? () => setState(() => _endWeek += 1)
-                        : null,
+                    onTap: () => _pickAndApply(
+                      title: '选择结束周',
+                      labels: List<String>.generate(
+                        CustomCourse.maxWeek,
+                        (int i) => '第 ${i + 1} 周',
+                      ),
+                      currentIndex: _endWeek - 1,
+                      onPicked: (int index) {
+                        _endWeek = index + 1;
+                        if (_endWeek < _startWeek) {
+                          _startWeek = _endWeek;
+                        }
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -326,61 +361,145 @@ class _CustomCourseFormState extends State<_CustomCourseForm> {
   }
 }
 
-/// 一行「◀ 值 ▶」选择器；到头的那一侧按钮置灰（不循环，避免误点一路滑到周日）。
-class _StepperRow extends StatelessWidget {
-  const _StepperRow({
+/// 一行可点开选择弹层的选项：label 在左，当前值在右，行尾一个向下箭头提示「点开有列表」。
+class _OptionRow extends StatelessWidget {
+  const _OptionRow({
     required this.label,
     required this.value,
-    this.onPrevious,
-    this.onNext,
+    required this.onTap,
   });
 
   final String label;
   final String value;
-
-  /// 上一个；null 表示已经到头。
-  final VoidCallback? onPrevious;
-
-  /// 下一个；null 表示已经到头。
-  final VoidCallback? onNext;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(
-      children: <Widget>[
-        SizedBox(
-          width: 44,
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: GridColors.textSecondary,
-              fontSize: 12.5,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 44,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: GridColors.textSecondary,
+                fontSize: 12.5,
+              ),
             ),
           ),
-        ),
-        FButton.icon(
-          variant: .outline,
-          onPress: onPrevious,
-          child: const Icon(FLucideIcons.chevronLeft, size: 16),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: GridColors.textPrimary,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: GridColors.textPrimary,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
+          const SizedBox(width: 6),
+          const Icon(
+            FLucideIcons.chevronDown,
+            size: 15,
+            color: GridColors.textSecondary,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// 每个选项行的高度，选择弹层用它算初始滚动位置。
+const double _optionItemExtent = 46;
+
+/// 弹出「列出所有选项」的选择弹层：标题 + 可滚动列表，当前值高亮并打勾，
+/// 初始滚动定位到当前值（30 个周次选项时不用从头顶翻下来）。返回选中的下标，划走返回 null。
+Future<int?> showOptionPickerSheet(
+  BuildContext context, {
+  required String title,
+  required List<String> labels,
+  required int current,
+}) {
+  final ScrollController scroll = ScrollController(
+    initialScrollOffset: (current * _optionItemExtent).clamp(
+      0,
+      double.maxFinite,
+    ),
+  );
+  return showAppSheet<int>(
+    context: context,
+    builder: (BuildContext sheetContext) => SheetSurface(
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: GridColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  controller: scroll,
+                  itemCount: labels.length,
+                  itemExtent: _optionItemExtent,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemBuilder: (BuildContext itemContext, int index) {
+                    final bool selected = index == current;
+                    return InkWell(
+                      onTap: () => Navigator.of(itemContext).pop(index),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                labels[index],
+                                style: TextStyle(
+                                  color: selected
+                                      ? GridColors.today
+                                      : GridColors.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                            if (selected)
+                              const Icon(
+                                FLucideIcons.check,
+                                size: 16,
+                                color: GridColors.today,
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
-        FButton.icon(
-          variant: .outline,
-          onPress: onNext,
-          child: const Icon(FLucideIcons.chevronRight, size: 16),
-        ),
-      ],
+      ),
     ),
   );
 }

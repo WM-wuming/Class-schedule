@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:class_schedule/data/jw_client.dart';
 import 'package:class_schedule/data/jw_exception.dart';
 import 'package:class_schedule/data/jw_http.dart';
@@ -36,9 +38,9 @@ void main() {
         password: 'ab>',
         captcha: 'A1B2',
       );
-      final String field = body.split('&').firstWhere(
-        (String part) => part.startsWith('encoded='),
-      );
+      final String field = body
+          .split('&')
+          .firstWhere((String part) => part.startsWith('encoded='));
       final String value = field.substring('encoded='.length);
 
       expect(body, isNot(contains('+')), reason: '原文里的 + 必须变成 %2B');
@@ -80,10 +82,7 @@ void main() {
 
   group('Cookie 处理', () {
     test('同名 Cookie 后出现的覆盖先前的', () {
-      expect(
-        JwCookieJar.merge('a=1; b=2', 'b=3; c=4'),
-        'a=1; b=3; c=4',
-      );
+      expect(JwCookieJar.merge('a=1; b=2', 'b=3; c=4'), 'a=1; b=3; c=4');
     });
 
     test('Set-Cookie 的属性被丢掉，空值（删除指令）不留下', () {
@@ -100,7 +99,7 @@ void main() {
   });
 
   group('登录会话与客户端', () {
-    test('提交登录会带上取验证码时拿到的临时会话', () async {
+    test('裸访问登录页拿初始会话，验证码与提交都绑在这个会话上', () async {
       final FakeLoginTransport login = FakeLoginTransport();
       final JwTimetableClient client = JwTimetableClient(
         baseUrl: _base,
@@ -110,13 +109,19 @@ void main() {
       );
 
       final JwLoginSession session = await client.beginLogin();
+      expect(login.warmupCalls, 1, reason: '先裸访问一次登录页');
+      expect(
+        login.lastWarmupCookie,
+        isNull,
+        reason: '裸访问不带任何 Cookie，服务端下发的才是初始会话',
+      );
       expect(login.captchaCalls, 1);
       expect(session.image, fakeCaptchaImage);
       expect(session.cookie, contains('JSESSIONID=login-before'));
       expect(
         session.cookie,
         isNot(contains('JSESSIONID=old')),
-        reason: '同名的 JSESSIONID 应该被验证码响应下发的新值覆盖',
+        reason: '初始会话来自裸访问，调用方旧会话不参与登录',
       );
 
       await client.login(
@@ -126,6 +131,7 @@ void main() {
         captcha: 'A1B2',
       );
 
+      expect(login.warmupCalls, 1, reason: '提交阶段不再有预热请求');
       expect(login.lastLoginBody, contains('RANDOMCODE=A1B2'));
       expect(login.lastLoginBody, contains('userAccount=student'));
       expect(login.lastLoginBody, contains('userPassword='));
@@ -134,6 +140,33 @@ void main() {
         contains('JSESSIONID=login-before'),
         reason: '验证码校验绑在会话上，提交必须带回去',
       );
+      expect(
+        login.lastLoginCookie,
+        contains('HWWAFSESID=waf123'),
+        reason: '裸访问与取验证码阶段拿到的 Cookie 都在提交会话里',
+      );
+      expect(
+        login.lastLoginCookie,
+        isNot(contains('waf-warmup')),
+        reason: '验证码响应的 WAF Cookie 覆盖了裸访问的初始值',
+      );
+    });
+
+    test('裸访问失败时直接报错，不会继续取验证码或提交', () async {
+      final FakeLoginTransport login = FakeLoginTransport(
+        warmupError: const JwException('裸访问登录页失败'),
+      );
+      final JwTimetableClient client = JwTimetableClient(
+        baseUrl: _base,
+        cookie: 'JSESSIONID=old',
+        transport: jwOkTransport,
+        detailedTransport: login.call,
+      );
+
+      await expectLater(client.beginLogin(), throwsA(isA<JwException>()));
+      expect(login.warmupCalls, 1);
+      expect(login.captchaCalls, 0, reason: '拿不到初始会话就不该取验证码');
+      expect(login.loginCalls, 0);
     });
 
     test('登录成功后替换客户端会话，并顺带返回主页面信息', () async {
@@ -277,18 +310,14 @@ void main() {
               ? fixtureWeekInfoHtml
               : '<html><head><title>用户登录</title></head></html>';
         },
-        detailedTransport: (
-          String m,
-          Uri u,
-          String b,
-          Map<String, String> h,
-        ) async {
-          final JwHttpResponse response = await login.call(m, u, b, h);
-          if (!u.path.contains('verifycode')) {
-            loggedIn = true;
-          }
-          return response;
-        },
+        detailedTransport:
+            (String m, Uri u, String b, Map<String, String> h) async {
+              final JwHttpResponse response = await login.call(m, u, b, h);
+              if (!u.path.contains('verifycode')) {
+                loggedIn = true;
+              }
+              return response;
+            },
         accountStore: FakeAccountStore(),
         swipeDebounce: Duration.zero,
       );
@@ -408,6 +437,72 @@ void main() {
   });
 
   group('登录页的验证码自动刷新', () {
+    testWidgets('识别拿不到结果时空验证码点登录：提示手动输入，不发请求', (WidgetTester tester) async {
+      // 不注入识别器：测试环境下识别口永远返回 null（模拟真机识别失败）。
+      final FakeLoginTransport login = FakeLoginTransport(
+        loginHtml: fixtureLoginFailedHtml,
+      );
+      await tester.pumpWidget(
+        jwApp(transport: jwExpiredTransport, loginTransport: login.call),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('我的信息'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('登录教务系统'));
+      await tester.pumpAndSettle();
+
+      // 只填账号密码，验证码留空 —— 按钮不能因此被禁用。
+      final Finder fields = find.byType(EditableText);
+      await tester.enterText(fields.at(0), 'student');
+      await tester.enterText(fields.at(1), 'ab>');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('登录'));
+      await tester.pumpAndSettle();
+
+      expect(login.loginCalls, 0, reason: '识别拿不到结果就不交空表单（验证码是一次性的）');
+      expect(find.textContaining('请照图手动输入'), findsOneWidget);
+    });
+
+    testWidgets('空验证码点登录会等识别结果，等到了就提交', (WidgetTester tester) async {
+      // gate 不放行 = 识别还在跑：点登录时页面应该等它出结果。
+      final Completer<void> gate = Completer<void>();
+      final FakeCaptchaRecognizer recognizer = FakeCaptchaRecognizer(<String?>[
+        'AB12',
+      ], gate: gate);
+      final FakeLoginTransport login = FakeLoginTransport(
+        loginHtml: fixtureLoginFailedHtml,
+      );
+      await tester.pumpWidget(
+        jwApp(
+          transport: jwExpiredTransport,
+          loginTransport: login.call,
+          captchaRecognizer: recognizer,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('我的信息'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('登录教务系统'));
+      await tester.pumpAndSettle();
+
+      final Finder fields = find.byType(EditableText);
+      await tester.enterText(fields.at(0), 'student');
+      await tester.enterText(fields.at(1), 'ab>');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('登录'));
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(login.loginCalls, 1, reason: '等到了识别结果并拿去提交');
+      expect(find.text('验证码错误!!'), findsOneWidget, reason: '假传输层按验证码错误裁决');
+      expect(find.textContaining('请照图手动输入'), findsNothing);
+    });
+
     testWidgets('提交失败后自动换一张，并说明验证码已更换', (WidgetTester tester) async {
       final FakeLoginTransport login = FakeLoginTransport(
         loginHtml: fixtureLoginFailedHtml,
@@ -494,9 +589,7 @@ void main() {
       expect(find.text('登录教务系统'), findsOneWidget);
     });
 
-    testWidgets('点登录进入登录页，提交后回到我的信息并显示新账号', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('点登录进入登录页，提交后回到我的信息并显示新账号', (WidgetTester tester) async {
       var loggedIn = false;
       final FakeLoginTransport login = FakeLoginTransport();
       await tester.pumpWidget(
@@ -509,13 +602,14 @@ void main() {
                 ? fixtureWeekInfoHtml
                 : '<html><head><title>用户登录</title></head></html>';
           },
-          loginTransport: (String m, Uri u, String b, Map<String, String> h) async {
-            final JwHttpResponse response = await login.call(m, u, b, h);
-            if (!u.path.contains('verifycode')) {
-              loggedIn = true;
-            }
-            return response;
-          },
+          loginTransport:
+              (String m, Uri u, String b, Map<String, String> h) async {
+                final JwHttpResponse response = await login.call(m, u, b, h);
+                if (!u.path.contains('verifycode')) {
+                  loggedIn = true;
+                }
+                return response;
+              },
         ),
       );
       await tester.pumpAndSettle();

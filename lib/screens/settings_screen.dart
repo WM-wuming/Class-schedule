@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:forui/forui.dart';
 
 import '../models/keep_alive.dart';
@@ -10,9 +10,88 @@ import '../state/schedule_controller.dart';
 import '../theme/course_palette.dart';
 import '../widgets/keep_alive_sheet.dart';
 
-/// 设置页：学期设置、显示选项、上课提醒与统计。
+/// 设置主页：每个类一个二级页面；「学期 / 显示 / 周次」三类合并进「课表」。
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => FScaffold(
+    childPad: false,
+    header: _pageHeader(context, '设置'),
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+      children: <Widget>[
+        _group(<FTileMixin>[
+          _entryTile(
+            context,
+            icon: FLucideIcons.calendarDays,
+            title: '课表',
+            subtitle: '学期 · 显示 · 周次',
+            page: const TimetableSettingsScreen(),
+          ),
+          _entryTile(
+            context,
+            icon: FLucideIcons.bell,
+            title: '上课提醒',
+            subtitle: '上课前的通知与提前量',
+            page: const ReminderSettingsScreen(),
+          ),
+          _entryTile(
+            context,
+            icon: FLucideIcons.batteryCharging,
+            title: '保活',
+            subtitle: '开机自启与后台耗电',
+            page: const KeepAliveSettingsScreen(),
+          ),
+        ]),
+      ],
+    ),
+  );
+
+  /// 一行二级页面入口。
+  static FTile _entryTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget page,
+  }) => FTile(
+    title: Text(title),
+    subtitle: Text(subtitle),
+    prefix: Icon(icon, size: 18),
+    suffix: const Icon(
+      FLucideIcons.chevronRight,
+      size: 16,
+      color: GridColors.textSecondary,
+    ),
+    onPress: () =>
+        Navigator.of(context)
+            .push(MaterialPageRoute<void>(builder: (_) => page)),
+  );
+}
+
+/// 二级页面统一的页头：左侧标题 + 返回键。
+FHeader _pageHeader(BuildContext context, String title) => FHeader.nested(
+  title: Text(
+    title,
+    style: const TextStyle(
+      color: GridColors.textPrimary,
+      fontSize: 17,
+      height: 1.1,
+      fontWeight: FontWeight.w600,
+    ),
+  ),
+  prefixes: <Widget>[
+    FHeaderAction(
+      icon: const Icon(FLucideIcons.chevronLeft, size: 20),
+      onPress: () => Navigator.of(context).maybePop(),
+    ),
+  ],
+);
+
+/// 「课表」二级页：学期设置 + 显示选项 + 周次状态，三块合一。
+class TimetableSettingsScreen extends StatelessWidget {
+  const TimetableSettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -22,23 +101,7 @@ class SettingsScreen extends StatelessWidget {
 
     return FScaffold(
       childPad: false,
-      header: FHeader.nested(
-        title: const Text(
-          '设置',
-          style: TextStyle(
-            color: GridColors.textPrimary,
-            fontSize: 17,
-            height: 1.1,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        prefixes: <Widget>[
-          FHeaderAction(
-            icon: const Icon(FLucideIcons.chevronLeft, size: 20),
-            onPress: () => Navigator.of(context).maybePop(),
-          ),
-        ],
-      ),
+      header: _pageHeader(context, '课表'),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
         children: <Widget>[
@@ -102,18 +165,15 @@ class SettingsScreen extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 18),
-          ..._reminderSection(controller),
-          const SizedBox(height: 18),
-          ..._keepAliveSection(context, controller),
-          const SizedBox(height: 18),
           const _SectionLabel('显示'),
           _group(<FTileMixin>[
             _switchTile(
               title: '显示周末',
               subtitle: '显示周六、周日两列',
               value: settings.showWeekend,
-              onChanged: (bool value) =>
-                  controller.updateSettings(settings.copyWith(showWeekend: value)),
+              onChanged: (bool value) => controller.updateSettings(
+                settings.copyWith(showWeekend: value),
+              ),
             ),
             _switchTile(
               title: '淡化非本周课程',
@@ -127,8 +187,9 @@ class SettingsScreen extends StatelessWidget {
               title: '显示教师',
               subtitle: '在课程卡片上显示任课教师',
               value: settings.showTeacher,
-              onChanged: (bool value) =>
-                  controller.updateSettings(settings.copyWith(showTeacher: value)),
+              onChanged: (bool value) => controller.updateSettings(
+                settings.copyWith(showTeacher: value),
+              ),
             ),
             _switchTile(
               title: '显示节次时间',
@@ -166,15 +227,42 @@ class SettingsScreen extends StatelessWidget {
               FTile(
                 title: const Text('教务系统周次'),
                 subtitle: const Text('若与本地不一致，可用「开学日期」校准'),
-                details: Text('第 ${controller.serverWeekOf(controller.currentWeek)} 周'),
+                details: Text(
+                  '第 ${controller.serverWeekOf(controller.currentWeek)} 周',
+                ),
               ),
           ]),
-          const SizedBox(height: 18),
-          const _SectionLabel('关于'),
-          _group(<FTileMixin>[
-            FTile(title: const Text('版本'), details: const Text('1.1.7')),
-          ]),
         ],
+      ),
+    );
+  }
+
+  static int _step(int current, int delta) {
+    final int next = current + delta;
+    if (next < 4) {
+      return 4;
+    }
+    return next > 30 ? 30 : next;
+  }
+
+  static String _formatDate(DateTime date) =>
+      '${date.year}/${date.month}/${date.day}';
+}
+
+/// 「上课提醒」二级页：开关 + 提前量 + 排期状态。
+class ReminderSettingsScreen extends StatelessWidget {
+  const ReminderSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ScheduleController controller = ScheduleScope.of(context);
+
+    return FScaffold(
+      childPad: false,
+      header: _pageHeader(context, '上课提醒'),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+        children: _reminderSection(controller),
       ),
     );
   }
@@ -194,7 +282,7 @@ class SettingsScreen extends StatelessWidget {
     final String? failure = controller.reminderError;
 
     return <Widget>[
-      const _SectionLabel('上课提醒'),
+      const SizedBox(height: 18),
       _group(<FTileMixin>[
         _reminderSwitchTile(controller: controller, supported: supported),
         FTile(
@@ -237,61 +325,6 @@ class SettingsScreen extends StatelessWidget {
             ),
         ]),
       ],
-    ];
-  }
-
-  /// 「保活」区：开机自启 + 后台耗电限制取消指引。
-  ///
-  /// 说清一个诚实的事实：真正的自启动开关在系统里（国产 ROM 没有公开 API），
-  /// App 里的开关只记录用户意愿，打开时会顺手把用户带到对应的系统页面。
-  static List<Widget> _keepAliveSection(
-    BuildContext context,
-    ScheduleController controller,
-  ) {
-    if (!controller.keepAliveSupported) {
-      return <Widget>[
-        const _SectionLabel('保活'),
-        _group(<FTileMixin>[
-          FTile(
-            title: const Text('开机自启 / 后台保活'),
-            subtitle: const Text('当前平台（浏览器）没有后台概念，也不存在保活'),
-            prefix: const Icon(FLucideIcons.info, size: 18),
-          ),
-        ]),
-      ];
-    }
-    final KeepAliveSettings keepAlive = controller.keepAliveSettings;
-    final bool? ignoring = controller.ignoringBatteryOptimizations;
-    return <Widget>[
-      const _SectionLabel('保活'),
-      _group(<FTileMixin>[
-        _switchTile(
-          title: '开机自启',
-          subtitle: '重启手机后自动恢复上课提醒（还需在系统里放行自启动）',
-          value: keepAlive.autoStart,
-          onChanged: (bool value) {
-            unawaited(
-              controller.updateKeepAliveSettings(
-                keepAlive.copyWith(autoStart: value),
-              ),
-            );
-            if (value) {
-              // 打开就带用户去系统的自启动管理 —— 那才是真正的开关。
-              unawaited(controller.openAutoStartSettings());
-            }
-          },
-        ),
-        FTile(
-          title: const Text('后台耗电限制取消指引'),
-          subtitle: Text(
-            ignoring == true
-                ? '已放行电池优化白名单，提醒可以准点响'
-                : '被系统杀后台是提醒不响的头号原因，点开看分步指引',
-          ),
-          prefix: const Icon(FLucideIcons.batteryCharging, size: 18),
-          onPress: () => showKeepAliveGuide(context, controller: controller),
-        ),
-      ]),
     ];
   }
 
@@ -363,21 +396,76 @@ class SettingsScreen extends StatelessWidget {
   }
 
   /// 60 → 「1 小时」，其余 → 「10 分钟」。
-  static String _minutesLabel(int minutes) =>
-      minutes >= 60 && minutes % 60 == 0
+  static String _minutesLabel(int minutes) => minutes >= 60 && minutes % 60 == 0
       ? '${minutes ~/ 60} 小时'
       : '$minutes 分钟';
+}
 
-  static int _step(int current, int delta) {
-    final int next = current + delta;
-    if (next < 4) {
-      return 4;
+/// 「保活」二级页：开机自启 + 后台耗电限制取消指引。
+class KeepAliveSettingsScreen extends StatelessWidget {
+  const KeepAliveSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ScheduleController controller = ScheduleScope.of(context);
+
+    final List<Widget> children;
+    if (!controller.keepAliveSupported) {
+      children = <Widget>[
+        const SizedBox(height: 18),
+        _group(<FTileMixin>[
+          FTile(
+            title: const Text('开机自启 / 后台保活'),
+            subtitle: const Text('当前平台（浏览器）没有后台概念，也不存在保活'),
+            prefix: const Icon(FLucideIcons.info, size: 18),
+          ),
+        ]),
+      ];
+    } else {
+      final KeepAliveSettings keepAlive = controller.keepAliveSettings;
+      final bool? ignoring = controller.ignoringBatteryOptimizations;
+      children = <Widget>[
+        const SizedBox(height: 18),
+        _group(<FTileMixin>[
+          _switchTile(
+            title: '开机自启',
+            subtitle: '重启手机后自动恢复上课提醒（还需在系统里放行自启动）',
+            value: keepAlive.autoStart,
+            onChanged: (bool value) {
+              unawaited(
+                controller.updateKeepAliveSettings(
+                  keepAlive.copyWith(autoStart: value),
+                ),
+              );
+              if (value) {
+                // 打开就带用户去系统的自启动管理 —— 那才是真正的开关。
+                unawaited(controller.openAutoStartSettings());
+              }
+            },
+          ),
+          FTile(
+            title: const Text('后台耗电限制取消指引'),
+            subtitle: Text(
+              ignoring == true
+                  ? '已放行电池优化白名单，提醒可以准点响'
+                  : '被系统杀后台是提醒不响的头号原因，点开看分步指引',
+            ),
+            prefix: const Icon(FLucideIcons.batteryCharging, size: 18),
+            onPress: () => showKeepAliveGuide(context, controller: controller),
+          ),
+        ]),
+      ];
     }
-    return next > 30 ? 30 : next;
-  }
 
-  static String _formatDate(DateTime date) =>
-      '${date.year}/${date.month}/${date.day}';
+    return FScaffold(
+      childPad: false,
+      header: _pageHeader(context, '保活'),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+        children: children,
+      ),
+    );
+  }
 }
 
 /// 一组设置项。[FTileGroup] 内部的滚动视图会 shrinkWrap，
@@ -471,7 +559,11 @@ class _NoticeCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          FButton(variant: .outline, onPress: onAction, child: Text(actionLabel)),
+          FButton(
+            variant: .outline,
+            onPress: onAction,
+            child: Text(actionLabel),
+          ),
         ],
       ),
     ),

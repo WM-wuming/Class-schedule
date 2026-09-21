@@ -39,24 +39,40 @@ class JwLoginSession {
     required this.image,
   });
 
-  /// 开始登录：先要一张验证码，并带上调用方当前的会话。
+  /// 开始登录：**裸访问一次登录页**拿初始会话，再取验证码。
   ///
-  /// 带 Cookie 是必须的 —— 验证码校验绑在会话上，请求验证码时服务端同时下发了
-  /// 临时 `JSESSIONID`，提交时得原样带回去。
+  /// 第一步不带任何 Cookie —— 服务端/WAF 对这个裸请求下发的会话
+  /// 就是本次登录的**初始会话**（干净、不含旧会话状态）；
+  /// 第二步带着这个初始会话去取验证码 —— 验证码校验绑在会话上，
+  /// 取图时服务端可能再补发/刷新 Cookie，一并合并进会话。
   static Future<JwLoginSession> begin({
     required JwDetailedTransport transport,
     required Uri captchaUrl,
     required Uri loginUrl,
     required String userAgent,
-    required String cookie,
   }) async {
+    // 1) 裸访问登录页：不带任何 Cookie，响应下发的就是初始会话。
+    final JwHttpResponse landing = await transport(
+      'GET',
+      loginUrl,
+      '',
+      <String, String>{
+        'User-Agent': userAgent,
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      },
+    );
+    final String initialCookie = landing.cookie;
+
+    // 2) 用初始会话取验证码（绕开缓存，否则可能拿到同一张图）。
     final JwHttpResponse response = await transport(
       'GET',
       captchaUrl,
       '',
       <String, String>{
-        if (cookie.trim().isNotEmpty) 'X-JW-Cookie': cookie.trim(),
-        // 绕开缓存，否则可能拿到同一张验证码（登录页的 JS 也是这么做的）
+        if (initialCookie.trim().isNotEmpty)
+          'X-JW-Cookie': initialCookie.trim(),
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
         'User-Agent': userAgent,
@@ -73,9 +89,12 @@ class JwLoginSession {
       );
     }
 
-    return JwLoginSession._(transport, loginUrl, userAgent,
-      // 请求验证码时服务端会下发临时会话，和调用方原有的会话合并（新的覆盖旧的）。
-      cookie: JwCookieJar.merge(cookie, response.cookie),
+    return JwLoginSession._(
+      transport,
+      loginUrl,
+      userAgent,
+      // 初始会话 + 取验证码时服务端补发的 Cookie（新的覆盖旧的）。
+      cookie: JwCookieJar.merge(initialCookie, response.cookie),
       image: response.bytes,
     );
   }
@@ -83,7 +102,7 @@ class JwLoginSession {
   /// 验证码图片（JPEG），直接丢给 `Image.memory` 即可。
   final Uint8List image;
 
-  /// 登录前的会话（含请求验证码时拿到的临时会话）。
+  /// 本次登录的会话：裸访问登录页拿到的初始会话 + 取验证码时补发的部分。
   final String cookie;
 
   final JwDetailedTransport _transport;
@@ -91,6 +110,9 @@ class JwLoginSession {
   final String _userAgent;
 
   /// 提交账号、密码与验证码。
+  ///
+  /// 提交时带上 [cookie] —— 它从「裸访问登录页拿到的初始会话」开始，
+  /// 已经包含了取验证码时服务端补发的部分，验证码校验就绑在这个会话上。
   Future<JwLoginAttempt> submit({
     required String account,
     required String password,

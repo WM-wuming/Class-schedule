@@ -5,6 +5,8 @@ import 'package:class_schedule/data/jw_exception.dart';
 import 'package:class_schedule/models/course.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'fakes.dart';
+
 void main() {
   // 真实抓取到的响应（POST xskb/xskb_list.do，zc=4），见 test/fixtures/xskb_week4.html
   final String fixture = File('test/fixtures/xskb_week4.html')
@@ -307,6 +309,97 @@ void main() {
             (JwException error) => error.message,
             'message',
             contains('请到「我的信息」页登录'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('旧课表接口（副数据源 loadkb.jsp）', () {
+    test('按日期提交表单，并带上 Cookie 与必要请求头', () async {
+      late String method;
+      late Uri url;
+      late String body;
+      final JwTimetableClient client = JwTimetableClient(
+        baseUrl: 'https://jw.example.edu.cn/gzasc_jsxsd',
+        cookie: 'JSESSIONID=abc',
+        transport: (String m, Uri u, String b, Map<String, String> h) async {
+          method = m;
+          url = u;
+          body = b;
+          return fixtureLoadkbHtml;
+        },
+      );
+
+      await client.fetchWeekByLoadkb(DateTime(2026, 9, 21));
+
+      expect(method, 'POST');
+      expect(
+        url.toString(),
+        'https://jw.example.edu.cn/gzasc_jsxsd/framework/main_index_loadkb.jsp',
+      );
+      // 页面脚本提交的就是 {rq: 日期, sjmsValue: 时间模式(空)}。
+      expect(body, 'rq=2026-09-21&sjmsValue=');
+    });
+
+    test('表单体里的日期跟着参数走', () {
+      expect(
+        JwTimetableClient.loadkbQueryBody(DateTime(2026, 8, 30)),
+        'rq=2026-08-30&sjmsValue=',
+      );
+      expect(
+        JwTimetableClient.loadkbQueryBody(DateTime(2026, 9, 5)),
+        'rq=2026-09-05&sjmsValue=',
+      );
+    });
+
+    test('解析真实响应：学分、课程属性、节次与周次（结构与新接口完全不同）', () {
+      // 用真实抓取的响应（2026-09-21，rq=2026-09-21 → 教务第 4 周）。
+      final JwTimetable timetable = JwLoadkbParser.parse(fixtureLoadkbHtml);
+
+      // 夹具里 10 门课；周次来自 li_showWeek（第4周），不在夹具里时不炸。
+      expect(timetable.week, 4);
+      expect(timetable.sessions, hasLength(10));
+
+      // 线性代数 周一 5-6 节：学分/属性来自 title 字段。
+      final CourseSession linear = timetable.sessions
+          .singleWhere((CourseSession s) => s.weekday == DateTime.monday &&
+              s.startPeriod == 5);
+      expect(linear.course.name, '线性代数');
+      expect(linear.course.credits, '3');
+      expect(linear.course.category, '必修');
+      expect(linear.course.location, 'J1-507');
+      // 旧接口格子里没有老师。
+      expect(linear.course.hasTeacher, isFalse);
+      expect(linear.startPeriod, 5);
+      expect(linear.endPeriod, 6);
+      expect(linear.startWeek, 4);
+      expect(linear.endWeek, 4);
+
+      // 三节连堂的节次区间 (09,10,11小节) → 9-11。
+      final CourseSession military = timetable.sessions
+          .singleWhere((CourseSession s) => s.course.name == '军事理论');
+      expect(military.weekday, DateTime.tuesday);
+      expect(military.startPeriod, 9);
+      expect(military.endPeriod, 11);
+
+      // 全名来自 title 的「课程名称：」，不是被截断的显示文本「概率论与数理..」。
+      expect(
+        timetable.sessions
+            .where((CourseSession s) => s.course.name == '概率论与数理统计')
+            .length,
+        2,
+      );
+    });
+
+    test('响应不是 tab1 表格（会话失效返回 JSON）时抛可读错误', () {
+      expect(
+        () => JwLoadkbParser.parse('{"flag1":2,"msgContent":"请先登录系统"}'),
+        throwsA(
+          isA<JwException>().having(
+            (JwException error) => error.message,
+            'message',
+            contains('请先登录系统'),
           ),
         ),
       );

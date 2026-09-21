@@ -62,14 +62,11 @@ class _CourseSelectionScreenState extends State<CourseSelectionScreen> {
             fontWeight: FontWeight.w700,
           ),
         ),
-        suffixes: <Widget>[
-          FHeaderAction(
-            icon: const Icon(FLucideIcons.refreshCw, size: 20),
-            onPress: () => controller.loadSelectionRounds(force: true),
-          ),
-        ],
       ),
-      footer: homeNavBar(current: widget.currentTab, onSelect: widget.onSelectTab),
+      footer: homeNavBar(
+        current: widget.currentTab,
+        onSelect: widget.onSelectTab,
+      ),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: <Widget>[
@@ -86,7 +83,7 @@ class _CourseSelectionScreenState extends State<CourseSelectionScreen> {
               title: '当前没有开放的选课轮次',
               message:
                   '教务系统学生选课中心返回「未查询到数据」。选课一般在学期初开放，'
-                  '开放后这里会列出轮次名称、选课时间；点右上角可随时刷新。',
+                  '开放后这里会列出轮次名称、选课时间；重新进入本页会自动刷新。',
             )
           else ...<Widget>[
             const _SectionLabel('选课轮次'),
@@ -145,7 +142,10 @@ class _LoadingCard extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             '正在读取选课中心…',
-            style: const TextStyle(color: GridColors.textSecondary, fontSize: 13),
+            style: const TextStyle(
+              color: GridColors.textSecondary,
+              fontSize: 13,
+            ),
           ),
         ],
       ),

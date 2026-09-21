@@ -47,8 +47,8 @@ void main() {
     testWidgets('固定像素按系数换算', (WidgetTester tester) async {
       const TimetableScale scale = TimetableScale(1.5);
       expect(scale.px(70), closeTo(105, 0.001));
-      expect(scale.px(TimetableGrid.gutterWidth), closeTo(84, 0.001));
-      expect(const TimetableScale(1).px(70), TimetableGrid.periodHeight);
+      expect(scale.px(TimetableGrid.gutterWidth), closeTo(60, 0.001));
+      expect(const TimetableScale(1).px(TimetableGrid.periodHeight), 62);
     });
   });
 
@@ -67,7 +67,7 @@ void main() {
       closeTo(TimetableGrid.periodHeight * factor, 0.6),
     );
 
-    // 左侧时间轴跟着变宽，节次名仍然居中。
+    // 左侧时间轴跟着变宽，节次名仍在时间轴里水平居中。
     expect(
       tester.getCenter(find.text('第一节')).dx,
       closeTo(TimetableGrid.gutterWidth * factor / 2, 0.6),

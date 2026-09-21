@@ -301,6 +301,50 @@ class JwTimetableClient {
     return JwTimetableParser.parse(html, fallbackWeek: week);
   }
 
+  /// 旧课表接口地址：`framework/main_index_loadkb.jsp`，按**日期**（`rq`）取课。
+  ///
+  /// 现在是**副数据源**：新接口 `xskb_list.do` 比它多了老师、少了学分与课程属性，
+  /// 所以只拿它来补课程详情弹窗里的附加信息，课表本身仍以新接口为准。
+  Uri get loadkbEndpoint =>
+      Uri.parse('$baseUrl/framework/main_index_loadkb.jsp');
+
+  /// 旧课表接口的表单体。[date] 是该周任意一天的日期（教务按周一到周日分周，
+  /// 传该周的星期一最稳）。
+  ///
+  /// `sjmsValue` 是主页面上「时间模式」下拉的值（正常课表就是空串），
+  /// 页面脚本 `$("#kbLoading").load("/…/main_index_loadkb.jsp", {rq: rq, sjmsValue: sjmsValue})`
+  /// 提交的就是这两个字段。
+  static String loadkbQueryBody(DateTime date) {
+    final String mm = date.month.toString().padLeft(2, '0');
+    final String dd = date.day.toString().padLeft(2, '0');
+    return 'rq=${date.year}-$mm-$dd&sjmsValue=';
+  }
+
+  /// 拉取 [date] 所在周的课表（旧接口，副数据源，只用来补附加信息）。
+  ///
+  /// 返回结构与新接口一致，但格子里**没有老师**、**有学分与课程属性**
+  /// （解析见 [JwLoadkbParser]，响应结构与新课表完全不同，别混用）。
+  Future<JwTimetable> fetchWeekByLoadkb(DateTime date) async {
+    final String html = await _transport(
+      'POST',
+      loadkbEndpoint,
+      loadkbQueryBody(date),
+      <String, String>{
+        if (hasCookie) 'X-JW-Cookie': cookie.trim(),
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'User-Agent': defaultUserAgent,
+        'Referer': '$baseUrl/framework/main_index.jsp',
+        'Origin': baseUrl,
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    );
+
+    return JwLoadkbParser.parse(html);
+  }
+
   /// 开始登录：拉一张验证码。失败或想换一张时重新调用即可。
   ///
   /// 返回的会话对象**一次有效**：验证码是消耗品，提交失败后必须重新取。
@@ -309,7 +353,6 @@ class JwTimetableClient {
     captchaUrl: captchaEndpoint,
     loginUrl: loginEndpoint,
     userAgent: defaultUserAgent,
-    cookie: cookie,
   );
 
   /// 用 [session] 提交账号密码与验证码；成功后替换 [cookie] 并返回主页面信息。
@@ -772,8 +815,10 @@ abstract final class JwTimetableParser {
         name: name,
         location: fields['教室'] ?? '',
         teacher: fields['老师'] ?? '',
-        // 这个接口不返回学分与课程属性（旧接口有，换掉后就没了）。
-        credits: _emptyToNull(fields['课程学分']),
+        // 新接口不返回学分与课程属性（旧接口 `main_index_loadkb.jsp` 有，
+        // 由 ScheduleController.loadEnrichedSession 走旧接口补齐）。
+        // 学分字段两种标题写法都认：新接口时代的「课程学分」与旧接口的「学分」。
+        credits: _emptyToNull(fields['课程学分'] ?? fields['学分']),
         category: _emptyToNull(fields['课程属性']),
       ),
       weekday: weekday,
@@ -914,6 +959,182 @@ abstract final class JwTimetableParser {
   }
 }
 
+/// 解析 `framework/main_index_loadkb.jsp`（旧接口）返回的课表片段。
+///
+/// 实测（2026-09-21 真实抓取）结构**与新课表接口的 `kbtable` 完全不同**：
+/// ```html
+/// <table id="tab1" class="table … kb_table">
+///   <thead><tr><th>周/节次</th><th>星期一</th>…<th>星期日</th></tr></thead>
+///   <tbody>
+///     <tr>
+///       <td>第一二节 <br/>(01,02小节) <br/>08:20-09:55</td>
+///       <td>…</td>
+///       <td><p title = '课程学分：3<br/>课程属性：必修<br/>课程名称：线性代数<br/>
+///            上课时间：第4周 星期三 [01-02]节<br/>上课地点：J3-311'>线性代数</p></td>
+///       …
+///     </tr>
+///   </tbody>
+/// </table>
+/// $("#li_showWeek").html("<span …>第4周</span>/20周");
+/// ```
+/// 坑：
+/// * 表格 id 是 `tab1`（class 里才带 `kb_table`），行首与表头都是 `<td>`；
+/// * 课名的显示文本可能被截断成「概率论与数理..」——全名只认 title 里的「课程名称：」；
+/// * 格子里**没有老师**（这正是拿它当副数据源的原因）；会话失效时返回 JSON。
+abstract final class JwLoadkbParser {
+  /// 课表表格本体（`id="tab1"`）。
+  static final RegExp _tablePattern = RegExp(
+    '<table[^>]*\\bid\\s*=\\s*[\'"]tab1[\'"][^>]*>(.*?)</table>',
+    dotAll: true,
+    caseSensitive: false,
+  );
+
+  static final RegExp _rowPattern = RegExp(
+    '<tr[^>]*>(.*?)</tr>',
+    dotAll: true,
+    caseSensitive: false,
+  );
+
+  /// 一行里的格子：第一个是节次标签，后面依次是星期一到星期日。
+  static final RegExp _cellPattern = RegExp(
+    '<td[^>]*>(.*?)</td>',
+    dotAll: true,
+    caseSensitive: false,
+  );
+
+  /// 课程条目：字段全在 `title` 里，正文是（可能截断的）课名。
+  static final RegExp _coursePattern = RegExp(
+    '<p\\b[^>]*\\btitle\\s*=\\s*[\'"](.*?)[\'"][^>]*>(.*?)</p>',
+    dotAll: true,
+    caseSensitive: false,
+  );
+
+  /// 行首节次格里的 `(01,02小节)`。
+  static final RegExp _slotPattern = RegExp(r'\((\d+(?:\s*,\s*\d+)*)\s*小节\)');
+
+  /// 主页面周次脚本：`$("#li_showWeek").html("…第4周…")`。
+  static final RegExp _showWeekPattern = RegExp(
+    'li_showWeek[\'"]?\\s*\\)?\\.html\\(\\s*[\'"](.*?)[\'"]\\s*\\)',
+    dotAll: true,
+    caseSensitive: false,
+  );
+
+  static final RegExp _weekPattern = RegExp('第\\s*(\\d+)\\s*周');
+
+  /// 解析旧接口的课表片段。[fallbackWeek] 是发起请求用的那一周。
+  ///
+  /// 返回结构与新接口一致（[JwTimetableParser.parse] 的平替）；格子里没有老师，
+  /// 有学分与课程属性。解析不到表格时抛 [JwException]（含会话失效的人话说明）。
+  static JwTimetable parse(String html, {int? fallbackWeek}) {
+    final RegExpMatch? table = _tablePattern.firstMatch(html);
+    if (table == null) {
+      throw JwException(JwTimetableParser._diagnose(html));
+    }
+    final int week =
+        _weekOf(html) ?? fallbackWeek ?? 1;
+    final List<CourseSession> sessions = <CourseSession>[];
+
+    for (final RegExpMatch row in _rowPattern.allMatches(table.group(1)!)) {
+      final List<RegExpMatch> cells = _cellPattern
+          .allMatches(row.group(1)!)
+          .toList(growable: false);
+      // 第一格是「第一二节 (01,02小节) 08:20-09:55」这种节次标签。
+      if (cells.length < 2) {
+        continue;
+      }
+      final RegExpMatch? slot = _slotPattern.firstMatch(cells.first.group(1)!);
+      if (slot == null) {
+        continue;
+      }
+      final List<int> periods = slot
+          .group(1)!
+          .split(',')
+          .map((String value) => int.tryParse(value.trim()))
+          .whereType<int>()
+          .toList(growable: false);
+      if (periods.isEmpty) {
+        continue;
+      }
+      final int startPeriod = periods.first;
+      final int endPeriod = periods.last;
+
+      // 其余格子按位置对应星期一到星期日。
+      for (var index = 1; index < cells.length && index <= 7; index++) {
+        final int weekday = index;
+        final String cell = cells[index].group(1)!;
+        for (final RegExpMatch course in _coursePattern.allMatches(cell)) {
+          final Map<String, String> fields = _titleFields(course.group(1)!);
+          final String name = (fields['课程名称'] ??
+                  JwTimetableParser._plain(course.group(2)!))
+              .trim();
+          if (name.isEmpty) {
+            continue;
+          }
+          sessions.add(
+            CourseSession(
+              course: Course(
+                name: name,
+                location: (fields['上课地点'] ?? '').trim(),
+                teacher: '',
+                credits: _cleanField(fields['课程学分']),
+                category: _cleanField(fields['课程属性']),
+              ),
+              weekday: weekday,
+              startPeriod: startPeriod,
+              endPeriod: endPeriod,
+              // 接口按日期筛好了「这一周」的课，周次就用页面标注的当前周。
+              startWeek: week,
+              endWeek: week,
+            ),
+          );
+        }
+      }
+    }
+
+    sessions.sort((CourseSession a, CourseSession b) {
+      final int byDay = a.weekday.compareTo(b.weekday);
+      return byDay != 0 ? byDay : a.startPeriod.compareTo(b.startPeriod);
+    });
+    return JwTimetable(week: week, sessions: sessions);
+  }
+
+  /// 从 `li_showWeek` 的赋值里拿当前周次；拿不到返回 null。
+  static int? _weekOf(String html) {
+    final RegExpMatch? fragment = _showWeekPattern.firstMatch(html);
+    if (fragment == null) {
+      return null;
+    }
+    return int.tryParse(
+      _weekPattern.firstMatch(fragment.group(1)!)?.group(1) ?? '',
+    );
+  }
+
+  /// 把 `课程学分：3<br/>课程属性：必修<br/>…` 拆成字段表。
+  static Map<String, String> _titleFields(String title) {
+    final Map<String, String> fields = <String, String>{};
+    for (final String part in title.split(RegExp(r'<br\s*/?>'))) {
+      final int at = part.indexOf('：');
+      if (at <= 0) {
+        continue;
+      }
+      fields[part.substring(0, at).trim()] = part.substring(at + 1).trim();
+    }
+    return fields;
+  }
+
+  /// 字段值去掉 HTML 空格实体；空串归一成 null（调用方按「没有这个字段」处理）。
+  static String? _cleanField(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final String cleaned = value
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('\u00a0', ' ')
+        .trim();
+    return cleaned.isEmpty ? null : cleaned;
+  }
+}
+
 /// 解析 `kbcx/kbxx_classroom_ifr` 返回的教室空余表。
 ///
 /// 这个页面返回的是一张**整表**：一行一间教室，一列一个「大节」，
@@ -988,6 +1209,10 @@ abstract final class JwClassroomParser {
   /// 教室名那一列的表头（不同学校写法不一）。
   static final RegExp _roomHeaderPattern = RegExp('教室|房间|课室|地点');
 
+  /// 「上午 / 中午 / 下午 / 晚上」—— 有的学校表头用**时段行**给节次列分组
+  /// （横跨若干列的「上午」…），它们是表头，不是数据列。
+  static final RegExp _groupHeaderPattern = RegExp('上午|中午|下午|晚上');
+
   /// 星期几的中文数字。
   static const Map<String, int> _weekdayDigits = <String, int>{
     '一': 1,
@@ -1025,9 +1250,7 @@ abstract final class JwClassroomParser {
   }) {
     final String? table = _largestTable(html);
     if (table == null) {
-      throw JwException(
-        JwTimetableParser._diagnose(html, what: '教室空余表'),
-      );
+      throw JwException(JwTimetableParser._diagnose(html, what: '教室空余表'));
     }
 
     final List<List<_GridCell>> grid = _expand(table);
@@ -1057,6 +1280,11 @@ abstract final class JwClassroomParser {
         final JwPeriodRange? periods = _periodsOf(cell.full);
         if (periods != null) {
           columnPeriods[c] = periods;
+          continue;
+        }
+        // 「上午 / 下午 / 晚上」这类时段分组表头横跨的是节次列，
+        // 不能收进 columnLabels，否则这些列会被当成「其它列」丢掉。
+        if (_groupHeaderPattern.hasMatch(cell.full)) {
           continue;
         }
         columnLabels.putIfAbsent(c, () => cell.label);
@@ -1105,6 +1333,14 @@ abstract final class JwClassroomParser {
       if (_weekdayOf(name) != null || _periodsOf(name) != null) {
         continue;
       }
+      // 「教室/节次」这种**表头文字**被当成教室名的兜底：有的模板表头
+      // 全用 `<td>`（第一行只有「教室/节次 + 上午/下午/晚上」，认不出节次），
+      // 摊平后它会变成一行假教室。表头字样 + 不带数字（真教室名如 J1-101
+      // 都有数字）的一律不当教室。
+      if ((_roomHeaderPattern.hasMatch(name) && !_digitsPattern.hasMatch(name)) ||
+          name == columnLabels[roomColumn]) {
+        continue;
+      }
 
       final List<JwClassroomBusy> busy = <JwClassroomBusy>[];
       for (var c = 0; c < row.length; c++) {
@@ -1132,7 +1368,9 @@ abstract final class JwClassroomParser {
       final Map<String, String> extras = <String, String>{};
       for (final MapEntry<int, String> entry in columnLabels.entries) {
         final int c = entry.key;
-        if (c == roomColumn || c >= row.length || extras.containsKey(entry.value)) {
+        if (c == roomColumn ||
+            c >= row.length ||
+            extras.containsKey(entry.value)) {
           continue;
         }
         final String value = row[c].label;
@@ -1141,9 +1379,7 @@ abstract final class JwClassroomParser {
         }
       }
 
-      classrooms.add(
-        JwClassroom(name: name, busy: busy, extras: extras),
-      );
+      classrooms.add(JwClassroom(name: name, busy: busy, extras: extras));
     }
 
     // 5) 节次列（给「只看第几节」的筛选用），按节次排序去重。
@@ -1214,7 +1450,7 @@ abstract final class JwClassroomParser {
 
     for (var r = 0; r < raw.length; r++) {
       var col = 0;
-      for (final ( _GridCell cell, int rowspan, int colspan) in raw[r]) {
+      for (final (_GridCell cell, int rowspan, int colspan) in raw[r]) {
         ensure(r, col);
         while (grid[r][col] != null) {
           col += 1;
@@ -1263,7 +1499,8 @@ abstract final class JwClassroomParser {
       }
       if (cell.isHeader ||
           _weekdayOf(cell.full) != null ||
-          _periodsOf(cell.full) != null) {
+          _periodsOf(cell.full) != null ||
+          _groupHeaderPattern.hasMatch(cell.full)) {
         return true;
       }
     }
@@ -1338,7 +1575,9 @@ abstract final class JwClassroomParser {
     );
 
     final List<JwClassroomOption> options = <JwClassroomOption>[];
-    for (final RegExpMatch option in optionPattern.allMatches(select.group(1)!)) {
+    for (final RegExpMatch option in optionPattern.allMatches(
+      select.group(1)!,
+    )) {
       final String label = _plain(option.group(2)!);
       if (label.isEmpty) {
         continue;

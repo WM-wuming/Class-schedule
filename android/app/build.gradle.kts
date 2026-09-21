@@ -16,7 +16,7 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.example.class_schedule"
+    namespace = "wm.gykclass.com"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -31,7 +31,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.class_schedule"
+        applicationId = "wm.gykclass.com"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // 写死 24（Android 7.0）：Android 9 (API 28) 及以上的手机都能安装。
@@ -44,6 +44,19 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            // 真机只有 arm 两种架构；x86/x86_64 只给模拟器用，却各自要背一份
+            // ML Kit 识别库（每个 ABI 约 7MB），砍掉后 APK 小一圈。
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
+    }
+
+    // 发布包只装 arm 两种架构（见 build apk --target-platform），x86_64 只给模拟器用，
+    // 却各自要背一份 11MB 的 ML Kit 识别库 —— 这里直接排除出包。
+    packaging {
+        jniLibs {
+            excludes += listOf("lib/x86_64/**")
+        }
     }
 
     signingConfigs {
@@ -65,6 +78,9 @@ android {
                 // 没配 key.properties 时退回 debug 签名，保证 `flutter run --release` 仍能跑。
                 signingConfigs.getByName("debug")
             }
+            // ML Kit 文字识别插件只打包拉丁文模型，consumer 规则引用的其它语言识别器
+            // 缺类会导致 R8 失败，见同目录 proguard-rules.pro。
+            proguardFiles("proguard-rules.pro")
         }
     }
 }

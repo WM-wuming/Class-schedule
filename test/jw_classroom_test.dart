@@ -85,6 +85,48 @@ void main() {
       expect(board.buildingOptions[1].id, '00001');
     });
 
+    test('真实模板：表头用 <td> 且按时段分组时，不多出「教室/节次」这一间', () {
+      // 有的学校模板表头全用 <td>：第一行是「教室/节次 + 上午/下午/晚上」，
+      // 第二行才是节次 —— 旧解析会把第一行当成一间叫「教室/节次」的教室。
+      const String html =
+          '<table>'
+          '<tr>'
+          '<td rowspan="2">教室/节次</td>'
+          '<td rowspan="2">容量</td>'
+          '<td colspan="2">上午</td>'
+          '<td colspan="2">下午</td>'
+          '<td colspan="2">晚上</td>'
+          '</tr>'
+          '<tr>'
+          '<td>第1-2节</td><td>第3-4节</td><td>第5-6节</td>'
+          '<td>第7-8节</td><td>第9-10节</td><td>第11-12节</td>'
+          '</tr>'
+          '<tr><td>J2-301</td><td>80</td><td>数据结构<br/>赵六</td>'
+          '<td></td><td></td><td></td><td></td><td></td></tr>'
+          '</table>';
+
+      final JwClassroomBoard board = JwClassroomParser.parse(
+        html,
+        fallbackWeek: 4,
+        fallbackWeekday: 2,
+      );
+
+      // 表头行不再被当成教室
+      expect(
+        board.classrooms.map((JwClassroom room) => room.name),
+        <String>['J2-301'],
+      );
+      // 时段行只是表头：6 个节次列照常读出，容量列照常收进 extras
+      expect(board.periodColumns, hasLength(6));
+      expect(board.periodColumns.first, const JwPeriodRange(start: 1, end: 2));
+      expect(roomOf(board, 'J2-301').extras['容量'], '80');
+      expect(roomOf(board, 'J2-301').busy.single.label, '数据结构');
+      expect(
+        roomOf(board, 'J2-301').busy.single.periods,
+        const JwPeriodRange(start: 1, end: 2),
+      );
+    });
+
     test('表头没写节次时，按列顺序兜底成「一天 6 个大节」', () {
       const String html =
           '<table>'

@@ -112,7 +112,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 默认在课表页
-      expect(find.text('广应课课表'), findsOneWidget);
+      expect(find.text('广应科课表'), findsOneWidget);
       expect(find.text('课表'), findsOneWidget); // 底部导航
       expect(find.text('选课'), findsOneWidget);
 
@@ -122,7 +122,7 @@ void main() {
       expect(find.text('张三'), findsOneWidget);
       expect(find.text('202600000001'), findsOneWidget);
       expect(find.text('信息学院'), findsOneWidget);
-      expect(find.text('广应课课表'), findsNothing);
+      expect(find.text('广应科课表'), findsNothing);
 
       // 切到「选课」：真实页面当前没有轮次
       await tester.tap(find.text('选课'));
@@ -133,7 +133,7 @@ void main() {
       // 切回课表
       await tester.tap(find.text('课表'));
       await tester.pumpAndSettle();
-      expect(find.text('广应课课表'), findsOneWidget);
+      expect(find.text('广应科课表'), findsOneWidget);
     });
 
     testWidgets('有轮次时选课页列出轮次', (WidgetTester tester) async {

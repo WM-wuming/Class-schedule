@@ -1,0 +1,381 @@
+# 发布流水线：推 v* 标签（或手动触发）时，并行构建三端产物，全部构建成功后才创建
+# GitHub Release 并把产物挂上去。任何一个平台失败 → 不建 Release，避免发出半成品。
+#
+# 手动触发（Actions → Release → Run workflow）有两个输入：
+#   tag     发布标签，例如 v1.1.34（需与 pubspec.yaml 的版本一致）
+#   publish 勾选 = 真正建 Release；不勾 = 只跑构建、产物留在本次运行的 artifact 里（dry run）
+#
+# —— 首次使用前必须做的两件事 ——
+#
+# 1) 配置 Android 签名（否则 Android 任务会在「校验签名 Secrets」这步失败；
+#    这是故意的：不做这个校验，Gradle 会静默退回 debug 签名，产出的包没法覆盖升级）。
+#    本机执行（Git Bash）：
+#       base64 -w0 android/release-keystore.jks > ks.txt
+#    GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret，建 4 个：
+#       ANDROID_KEYSTORE_BASE64   ks.txt 的全部内容
+#       ANDROID_KEYSTORE_PASSWORD android/key.properties 里的 storePassword
+#       ANDROID_KEY_ALIAS         android/key.properties 里的 keyAlias
+#       ANDROID_KEY_PASSWORD      android/key.properties 里的 keyPassword
+#    注意：密码建议只用字母数字，含 # = \ $ 等字符时 Java Properties 的转义规则会咬人。
+#    存完把 ks.txt 删掉（里面是私钥）。
+#
+# 2) Release 权限：本文件已在 release 任务上声明 contents: write，无需改仓库设置。
+#    但若仓库 Settings → Actions → General 里的 Workflow permissions 设成了
+#    「Read repository contents only」，则需要在那边放开，或保持本文件的声明不变。
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布标签，例如 v1.1.34（需与 pubspec.yaml 的 version 一致）'
+        required: true
+        type: string
+      publish:
+        description: '是否创建 GitHub Release（不勾 = 只构建并上传 artifact，用于验证）'
+        required: true
+        type: boolean
+        default: true
+
+# 发布不抢跑：一次只跑一个，且不打断正在进行的（半截的 Release 更麻烦）
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.47.5'
+  # Windows 可执行文件名 = windows/CMakeLists.txt 里的 BINARY_NAME，改名要同步这里
+  APP_BINARY: class_schedule
+
+jobs:
+  # ────────────────────────────── Android ──────────────────────────────
+  android:
+    name: Android · 签名 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 解析版本号
+        id: ver
+        run: |
+          raw=$(grep -E '^version:' pubspec.yaml | head -n1 | sed -E 's/^version:[[:space:]]*//' | tr -d '[:space:]')
+          version=${raw%%+*}
+          build=${raw#*+}
+          if [ "$build" = "$raw" ]; then build=0; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "pubspec 版本：$version (build $build)"
+
+      - name: 校验签名 Secrets
+        run: |
+          missing=0
+          for name in KEYSTORE_B64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::缺少仓库 Secret：$name"
+              missing=1
+            fi
+          done
+          if [ "$missing" != "0" ]; then
+            echo "没有签名凭据时会退回 debug 签名，装上去也无法覆盖升级，直接停下。"
+            exit 1
+          fi
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # 仓库里的 Gradle 发行版指向腾讯镜像（为国内网络改的），GitHub runner 在国外，
+      # 拉 200MB 的 all.zip 会很难受，这里临时换回官方源。
+      - name: Gradle 发行版换回官方源
+        run: sed -i 's#mirrors\.cloud\.tencent\.com/gradle/#services.gradle.org/distributions/#g' android/gradle/wrapper/gradle-wrapper.properties
+
+      # android/gradle.properties 里 sdkDownload=false（国内网络下不让 AGP 卡在下载），
+      # 于是 runner 上缺组件就硬报错，这里先按需补齐。已是预装的会直接跳过。
+      - name: 补齐 Android SDK 组件
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMGR=$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n1 || true)
+          if [ -z "$SDKMGR" ]; then
+            echo "::warning::没找到 sdkmanager，跳过；若构建报缺 platform/build-tools，就在这里补装"
+          else
+            yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+            "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
+          fi
+          echo "SDK 根目录：$SDK"
+          ls "$SDK/platforms" 2>/dev/null || true
+
+      # key.properties / release-keystore.jks 都已被 .gitignore 排除，签名文件只在这个
+      # runner 的临时工作区里存在，随运行结束销毁，不会进仓库也不会进 artifact。
+      - name: 写入签名文件
+        run: |
+          printf '%s' "$KEYSTORE_B64" | base64 -d > android/release-keystore.jks
+          {
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=release-keystore.jks"
+          } > android/key.properties
+          echo "keystore 大小：$(wc -c < android/release-keystore.jks) 字节"
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      # 只出 arm 两种真机架构（arm64-v8a / armeabi-v7a），和本地 dist/ 里的包一致；
+      # x86_64 只有模拟器用，却要各背一份 ML Kit 识别库，出包时已经在
+      # android/app/build.gradle.kts 的 jniLibs.excludes 里排除了。
+      - name: 构建 release APK
+        run: flutter build apk --release --target-platform android-arm,android-arm64
+
+      - name: 归档产物
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "dist/app-release-v${{ steps.ver.outputs.version }}.apk"
+          ls -lh dist/
+
+      # 没有这步，签名静默退回 debug 也看不出来 —— 上线后才发现装不上就晚了
+      - name: 校验签名（必须是 release 签名）
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT=$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -n1)
+          "$BT/apksigner" verify --print-certs "dist/app-release-v${{ steps.ver.outputs.version }}.apk" | tee apk-certs.txt
+          if grep -q "Android Debug" apk-certs.txt; then
+            echo "::error::APK 仍是 debug 签名，检查 4 个签名 Secret 是否配好"
+            exit 1
+          fi
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  # ─────────────────────────────── iOS ───────────────────────────────
+  ios:
+    name: iOS · 未签名 IPA
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 解析版本号
+        id: ver
+        run: |
+          raw=$(grep -E '^version:' pubspec.yaml | head -n1 | sed -E 's/^version:[[:space:]]*//' | tr -d '[:space:]')
+          version=${raw%%+*}
+          build=${raw#*+}
+          if [ "$build" = "$raw" ]; then build=0; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "pubspec 版本：$version (build $build)"
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # 镜像里通常自带 CocoaPods，掉了就补一个。google_mlkit_text_recognition 走 Pod，
+      # 没有它这一步必挂。
+      - name: 确保 CocoaPods 可用
+        run: |
+          if ! command -v pod > /dev/null 2>&1; then
+            sudo gem install cocoapods --no-document
+          fi
+          pod --version
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      # 没有 Apple 开发者账号，这里只做「不签名的设备版构建」：产物是一个可从
+      # Payload/Runner.app 结构装回去的未签名 IPA，用 AltStore / Sideloadly / 爱思助手
+      # 重签后才能装到手机上。想直接出可安装的包，需要往仓库加
+      # IOS_CERTIFICATE_P12 / IOS_PROVISIONING_PROFILE 等 Secret 并改用
+      # `flutter build ipa --export-options-plist=...`，届时再补这一段。
+      - name: 构建 iOS（不签名）
+        run: flutter build ios --release --no-codesign
+
+      - name: 打包成未签名 IPA
+        run: |
+          APP=$(find build/ios -maxdepth 2 -name "Runner.app" -type d | head -n1)
+          if [ -z "$APP" ]; then
+            echo "::error::没找到 Runner.app，构建产物目录结构与预期不符"
+            find build/ios -maxdepth 3 -name "*.app" -type d || true
+            exit 1
+          fi
+          echo "取到：$APP"
+          mkdir -p dist/ios-stage/Payload
+          cp -R "$APP" dist/ios-stage/Payload/
+          ( cd dist/ios-stage && zip -qry "../${APP_BINARY}-v${{ steps.ver.outputs.version }}-ios-unsigned.ipa" Payload )
+          unzip -l "dist/${APP_BINARY}-v${{ steps.ver.outputs.version }}-ios-unsigned.ipa" | grep -q "Payload/Runner.app/Info.plist"
+          ls -lh dist/
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  # ───────────────────────────── Windows ─────────────────────────────
+  windows:
+    name: Windows · 免安装压缩包
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 解析版本号
+        id: ver
+        shell: pwsh
+        run: |
+          $raw = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value.Trim()
+          $version, $build = $raw -split '\+', 2
+          if (-not $build) { $build = '0' }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build=$build" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Output "pubspec 版本：$version (build $build)"
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 拉取依赖
+        run: flutter pub get
+        shell: pwsh
+
+      - name: 构建 Windows
+        run: flutter build windows --release
+        shell: pwsh
+
+      # google_mlkit_text_recognition 没有 Windows 实现，插件在这里被跳过、不注册，
+      # 构建不受影响。Dart 侧本来就有平台守卫（captcha_recognizer_mlkit.dart 里
+      # Platform.isAndroid || Platform.isIOS 判断 + try/catch），这个平台上学号登录
+      # 的验证码退化成手动输入，其余功能照常（通知有 flutter_local_notifications_windows）。
+      - name: 打包成免安装 zip
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem build\windows -Recurse -Filter "${env:APP_BINARY}.exe" | Select-Object -First 1
+          if (-not $exe) { throw "没找到 ${env:APP_BINARY}.exe，构建产物目录结构与预期不符" }
+          Write-Output "取到：$($exe.FullName)"
+          $stage = "dist/${env:APP_BINARY}-v${{ steps.ver.outputs.version }}-windows-x64"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Path $exe.Directory.FullName -Destination $stage -Recurse -Force
+          Compress-Archive -Path $stage -DestinationPath "$stage.zip" -Force
+          Get-Item "$stage.zip" | Select-Object Name, Length | Format-List
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-zip
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # ────────────────────────── 汇总并发布 ──────────────────────────
+  release:
+    name: 创建 GitHub Release
+    needs: [android, ios, windows]
+    # 三个平台任务全部成功才会走到这里（任一失败时整个任务被跳过）。
+    # 手动触发且 publish 未勾选时也跳过，只留 artifact 供验证。
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: 检出代码（取版本号用）
+        uses: actions/checkout@v7
+
+      - name: 下载三端产物
+        uses: actions/download-artifact@v8
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: 检查产物齐全
+        run: |
+          ls -lh assets/
+          raw=$(grep -E '^version:' pubspec.yaml | head -n1 | sed -E 's/^version:[[:space:]]*//' | tr -d '[:space:]')
+          VERSION=${raw%%+*}
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::warning::标签 $TAG 与 pubspec.yaml 的版本 v$VERSION 不一致，产物文件名按 pubspec 走"
+          fi
+          for f in "app-release-v$VERSION.apk" "$APP_BINARY-v$VERSION-ios-unsigned.ipa" "$APP_BINARY-v$VERSION-windows-x64.zip"; do
+            [ -f "assets/$f" ] || { echo "::error::缺少产物 $f"; exit 1; }
+          done
+
+      - name: 生成发布说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## 广应课课表 $TAG"
+            echo
+            echo "| 平台 | 产物 | 说明 |"
+            echo "| --- | --- | --- |"
+            echo "| Android | \`app-release-v$VERSION.apk\` | 直装。与历史版本同一签名，可直接覆盖升级；需系统设置里允许安装未知来源应用 |"
+            echo "| iOS | \`$APP_BINARY-v$VERSION-ios-unsigned.ipa\` | **未签名**，需用 AltStore / Sideloadly / 爱思助手重签后才能装 |"
+            echo "| Windows | \`$APP_BINARY-v$VERSION-windows-x64.zip\` | 免安装，解压后运行 \`$APP_BINARY.exe\`，需 Windows 10 1809+ |"
+            echo
+            echo "> 本构建由 GitHub Actions 从提交 \`${GITHUB_SHA:0:7}\` 自动产出。"
+            echo
+            echo "### 提交记录"
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --jq .body \
+              || echo "_（自动生成变更日志失败，请查看提交历史）_"
+          } > release-notes.md
+          head -n 40 release-notes.md
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --title "广应课课表 $TAG" --notes-file release-notes.md)
+          case "$TAG" in
+            *-*) args+=(--prerelease) ;;   # v1.1.34-beta 这类带后缀的标成预发布
+          esac
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手动触发时标签可能还没建，就地创到当前提交上
+            gh release create "$TAG" "${args[@]}" --target "$GITHUB_SHA" assets/*
+          else
+            # 标签推送：标签已存在，用它校验一下免得推错
+            gh release create "$TAG" "${args[@]}" --verify-tag assets/*
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY"

@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:class_schedule/data/custom_course_store.dart';
+import 'package:class_schedule/data/jw_client.dart';
 import 'package:class_schedule/models/course.dart';
 import 'package:class_schedule/models/custom_course.dart';
 import 'package:class_schedule/models/reminder.dart';
@@ -163,8 +166,9 @@ void main() {
       FakeCustomCourseStore? store,
       FakeReminderNotifier? notifier,
       List<CustomCourse>? restored,
+      JwTransport? transport,
     }) => ScheduleController(
-      transport: jwOkTransport,
+      transport: transport ?? jwOkTransport,
       accountStore: FakeAccountStore(),
       reminderNotifier: notifier ?? FakeReminderNotifier(),
       reminderStore: FakeReminderStore(),
@@ -219,6 +223,90 @@ void main() {
       expect(added, isNull);
       expect(controller.customCourses, isEmpty);
       expect(store.writes, 0, reason: '没建成就不该写盘');
+      controller.dispose();
+    });
+
+    test('详情补充：旧接口把学分与课程属性补上', () async {
+      final RecordingTransport recorder = RecordingTransport();
+      final ScheduleController controller = build(transport: recorder.call);
+      await settle();
+
+      final int week = controller.todayWeek;
+      final CourseSession session = controller
+          .sessionsOfWeek(week)
+          .firstWhere((CourseSession s) => s.course.name == '线性代数');
+      expect(session.course.credits, isNull);
+      expect(session.course.category, isNull);
+
+      final CourseSession? enriched = await controller.loadEnrichedSession(
+        session,
+        week,
+      );
+
+      // 表单按日期提交：rq = 该周的星期一（本应用第 N 周从周日开始，+1 天才是
+      // 教务口径第 N 周的星期一），sjmsValue 留空。
+      final DateTime monday = controller.term.startOfWeek(week).add(
+        const Duration(days: 1),
+      );
+      final String mm = monday.month.toString().padLeft(2, '0');
+      final String dd = monday.day.toString().padLeft(2, '0');
+      expect(recorder.loadkbBodies.single, 'rq=${monday.year}-$mm-$dd&sjmsValue=');
+
+      expect(enriched, isNotNull);
+      expect(enriched!.course.credits, '3');
+      expect(enriched.course.category, '必修');
+      // 本来就有的信息一律保留（新接口的老师、教室更准）。
+      expect(enriched.course.teacher, session.course.teacher);
+      expect(enriched.course.location, session.course.location);
+      expect(enriched.startPeriod, session.startPeriod);
+      expect(enriched.endPeriod, session.endPeriod);
+      controller.dispose();
+    });
+
+    test('详情补充：第二次不再发请求（每周缓存）', () async {
+      final RecordingTransport recorder = RecordingTransport();
+      final ScheduleController controller = build(transport: recorder.call);
+      await settle();
+
+      final int week = controller.todayWeek;
+      final CourseSession session = controller
+          .sessionsOfWeek(week)
+          .firstWhere((CourseSession s) => s.course.name == '线性代数');
+      await controller.loadEnrichedSession(session, week);
+      final CourseSession other = controller
+          .sessionsOfWeek(week)
+          .firstWhere((CourseSession s) => s.course.name == '概率论与数理统计');
+      final CourseSession? second = await controller.loadEnrichedSession(
+        other,
+        week,
+      );
+
+      expect(recorder.loadkbBodies, hasLength(1));
+      // 同周其它课直接用缓存的旧接口结果匹配（真实夹具里概率论 周一 3-4 也有）。
+      expect(second, isNotNull);
+      expect(second!.course.credits, '3');
+      expect(second.course.category, '必修');
+      controller.dispose();
+    });
+
+    test('详情补充：旧接口失败时安静返回 null', () async {
+      final RecordingTransport recorder = RecordingTransport(
+        loadkbError: const SocketException('boom'),
+      );
+      final ScheduleController controller = build(transport: recorder.call);
+      await settle();
+
+      final int week = controller.todayWeek;
+      final CourseSession session = controller
+          .sessionsOfWeek(week)
+          .firstWhere((CourseSession s) => s.course.name == '线性代数');
+      final CourseSession? enriched = await controller.loadEnrichedSession(
+        session,
+        week,
+      );
+
+      expect(enriched, isNull);
+      expect(recorder.loadkbBodies, hasLength(1));
       controller.dispose();
     });
 
@@ -362,11 +450,13 @@ void main() {
       final int week = controller.term.weekOf(tomorrow);
       expect(week, inInclusiveRange(1, controller.term.totalWeeks));
 
+      // 起始节次用 2：提醒按「周×1000 + 星期×100 + 起始节次」去重，夹具课表的
+      // 起始节次只落在 1/3/5/7/9 —— 用 2 保证无论明天是星期几都不会跟夹具撞号。
       await controller.addCustomCourse(
         name: '明天的自习',
         weekday: tomorrow.weekday,
-        startPeriod: 1,
-        endPeriod: 2,
+        startPeriod: 2,
+        endPeriod: 3,
         startWeek: week,
         endWeek: week,
       );
@@ -385,14 +475,28 @@ void main() {
       WidgetTester tester, {
       FakeCustomCourseStore? store,
       List<CustomCourse>? restored,
+      JwTransport? transport,
     }) async {
       tester.view.physicalSize = const Size(1500, 4200);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
-        jwApp(customCourseStore: store, restoredCustomCourses: restored),
+        jwApp(customCourseStore: store, restoredCustomCourses: restored, transport: transport),
       );
       await tester.pumpAndSettle();
+    }
+
+    /// 旧课表接口返回带学分/课程属性的夹具，其余请求走默认夹具。
+    Future<String> transportWithLoadkb(
+      String method,
+      Uri url,
+      String body,
+      Map<String, String> headers,
+    ) async {
+      if (url.path.contains('main_index_loadkb')) {
+        return fixtureLoadkbHtml;
+      }
+      return jwOkTransport(method, url, body, headers);
     }
 
     testWidgets('右下角有加号，点开是添加课程表单', (WidgetTester tester) async {
@@ -407,6 +511,85 @@ void main() {
       expect(find.text('星期'), findsOneWidget);
       expect(find.text('节次'), findsOneWidget);
       expect(find.text('周次'), findsOneWidget);
+    });
+
+    testWidgets('点「星期」行弹出全部选项列表，选中后更新行值', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.byIcon(FLucideIcons.plus));
+      await tester.pumpAndSettle();
+
+      // 表单里「星期」是行标签；点这一行（默认值是「今天」）。
+      await tester.tap(find.text('星期'));
+      await tester.pumpAndSettle();
+
+      // 弹层列出周一到周日共 7 个选项，当前值打勾。
+      // 注：弹层当前值那项会和背后表单行的值文字重复，所以用 findsWidgets。
+      expect(find.text('选择星期'), findsOneWidget);
+      for (final String day in <String>['周一', '周二', '周三', '周四', '周五', '周六', '周日']) {
+        expect(find.text(day), findsWidgets, reason: day);
+      }
+
+      // 选「周三」：弹层关掉，行值更新。
+      await tester.tap(find.text('周三'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('周三'), findsOneWidget);
+      expect(find.text('选择星期'), findsNothing);
+    });
+
+    testWidgets('点「开始」节次行弹列表选择，把范围顶过去时结束节次跟着走', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.byIcon(FLucideIcons.plus));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('开始'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('选择开始节次'), findsOneWidget);
+      expect(find.text('第 ${CustomCourse.maxPeriod} 节'), findsOneWidget);
+
+      // 选最后一节：开始超过结束（默认 2），结束要被抬到同一节。
+      await tester.tap(find.text('第 ${CustomCourse.maxPeriod} 节'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('第 ${CustomCourse.maxPeriod} 节'), findsNWidgets(2));
+    });
+
+    testWidgets('点「到」周次行弹列表选择，选到更早的周时开始周跟着走', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.byIcon(FLucideIcons.plus));
+      await tester.pumpAndSettle();
+
+      // 先把「从」选到第 5 周（默认 1 → 5）。
+      await tester.tap(find.text('从'));
+      await tester.pumpAndSettle();
+      expect(find.text('选择开始周'), findsOneWidget);
+      await tester.tap(find.text('第 5 周'));
+      await tester.pumpAndSettle();
+      expect(find.text('第 5 周'), findsOneWidget);
+
+      // 再把「到」选到第 3 周：结束被拉到开始（第 5 周）之前，开始周要跟着走到第 3 周。
+      await tester.tap(find.text('到'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('选择结束周'), findsOneWidget);
+      // 「第 1 周」在弹层里和背后表单「从」行各出现一次。
+      expect(find.text('第 ${CustomCourse.minWeek} 周'), findsWidgets);
+
+      await tester.tap(find.text('第 3 周'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('选择结束周'), findsNothing);
+      expect(find.text('第 3 周'), findsNWidgets(2));
     });
 
     testWidgets('填好课程名保存后，课表上多出一门课', (WidgetTester tester) async {
@@ -472,6 +655,22 @@ void main() {
 
       expect(find.text('课程详情'), findsOneWidget);
       expect(find.text('编辑这门课'), findsNothing);
+    });
+
+    testWidgets('教务课详情会用旧接口补上学分与课程属性', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester, transport: transportWithLoadkb);
+
+      await tester.tap(find.text('线性代数').first);
+      await tester.pumpAndSettle();
+
+      // 旧接口夹具里线性代数学分 3、必修；补上后详情里要出现这两行。
+      expect(find.text('学分'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('课程属性'), findsOneWidget);
+      expect(find.text('必修'), findsOneWidget);
+      expect(find.text('正在补充学分等信息…'), findsNothing);
     });
 
     testWidgets('编辑表单里两步确认可以删掉这门课', (WidgetTester tester) async {

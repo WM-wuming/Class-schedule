@@ -1,4 +1,4 @@
-package com.example.class_schedule
+package wm.gykclass.com
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -35,7 +35,7 @@ class NextClassWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        const val ACTION_REFRESH = "com.example.class_schedule.WIDGET_NEXT_CLASS_REFRESH"
+        const val ACTION_REFRESH = "wm.gykclass.com.WIDGET_NEXT_CLASS_REFRESH"
 
         private const val PREFS = "next_class_widget"
         private const val KEY_PAYLOAD = "payload"

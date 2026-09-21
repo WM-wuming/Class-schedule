@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 
 import '../data/class_notifier.dart';
+import '../data/captcha_recognizer.dart';
 import '../data/custom_course_store.dart';
 import '../data/jw_account_store.dart';
 import '../data/jw_client.dart';
@@ -14,6 +15,7 @@ import '../data/jw_login.dart';
 import '../data/keep_alive_platform.dart';
 import '../data/keep_alive_store.dart';
 import '../data/reminder_store.dart';
+import '../data/timetable_cache.dart';
 import '../data/widget_updater.dart';
 import '../models/classroom.dart';
 import '../models/course.dart';
@@ -83,8 +85,10 @@ class AppSettings {
 /// 课表页面状态：当前周次、每周数据与加载状态。
 ///
 /// 网格里的课有两个来源，分开对待：
-/// * **教务系统**抓回来的排课：**不落盘**，每周实时请求，内部 [Map] 只是本次会话的内存
-///   数据，用来来回切周时不重复请求；换账号时整份作废（见 [_dropRemoteData]）。
+/// * **教务系统**抓回来的排课：用课表接口逐周拉取后**整学期合并成 JSON 快照落盘**
+///   （见 [TimetableCacheStore]）。冷启动先把快照水合进内存（[_remote]），界面切周
+///   全走本地；快照缺哪周、或用户手动刷新时才重新联网（见 [_fetchAllWeeks]）。
+///   换账号时整份作废（见 [_dropRemoteData]）。
 /// * **用户自己添加的课程**（[CustomCourse]）：属于用户数据，**一直留在本机**
 ///   （见 [CustomCourseStore]），刷新课表、换账号、退出登录都不动它。
 ///
@@ -93,8 +97,8 @@ class AppSettings {
 /// 两来源在 [sessionsOfWeek] 里合并，界面只看到一套 [CourseSession]。
 ///
 /// 加载策略：
-/// 1. 内存里已有该周 → 直接渲染，不发请求；
-/// 2. 否则防抖后请求教务系统，成功后**顺便预取相邻周**。
+/// 1. 内存里有该周（快照水合或本会话拉过）→ 直接渲染，不发请求；
+/// 2. 否则防抖后请求教务系统，成功后**顺便预取相邻周**，并落盘进快照。
 ///
 /// 快速连续滑动时只会为最终停留的那一周发请求（防抖），同一周不会并发请求两次（去重）。
 class ScheduleController extends ChangeNotifier {
@@ -114,6 +118,9 @@ class ScheduleController extends ChangeNotifier {
     KeepAlivePlatform? keepAlivePlatform,
     KeepAliveSettings? restoredKeepAlive,
     WidgetUpdater? widgetUpdater,
+    TimetableCacheStore? timetableCacheStore,
+    Map<int, List<CourseSession>>? restoredTimetableCache,
+    CaptchaRecognizer? captchaRecognizer,
     this.swipeDebounce = const Duration(milliseconds: 220),
   }) : _settings = settings ?? AppSettings.initial(),
        _client =
@@ -128,15 +135,17 @@ class ScheduleController extends ChangeNotifier {
        _notifier = reminderNotifier ?? createClassReminderNotifier(),
        _reminderStore = reminderStore ?? const PrefsReminderStore(),
        _reminderSettings = restoredReminder ?? const ClassReminderSettings(),
-       _customCourseStore =
-           customCourseStore ?? const PrefsCustomCourseStore(),
+       _customCourseStore = customCourseStore ?? const PrefsCustomCourseStore(),
        _customCourses = List<CustomCourse>.of(
          restoredCustomCourses ?? const <CustomCourse>[],
        ),
        _keepAliveStore = keepAliveStore ?? const PrefsKeepAliveStore(),
        _keepAlivePlatform = keepAlivePlatform ?? createKeepAlivePlatform(),
        _keepAliveSettings = restoredKeepAlive ?? const KeepAliveSettings(),
-       _widgetUpdater = widgetUpdater ?? createWidgetUpdater() {
+       _widgetUpdater = widgetUpdater ?? createWidgetUpdater(),
+       _captchaRecognizer = captchaRecognizer ?? createCaptchaRecognizer(),
+       _timetableCacheStore =
+           timetableCacheStore ?? const PrefsTimetableCacheStore() {
     // 本机存过的账号先认下来：学生信息马上能显示，登录页也能回填学号
     // （密码只有用户勾过「记住密码」才有，同样只用来回填）。
     _savedAccountNumber = restoredAccount?.account ?? '';
@@ -144,15 +153,36 @@ class ScheduleController extends ChangeNotifier {
     _student = restoredAccount?.student;
     _studentFromStore = _student != null;
 
+    // 本地的课表快照（整学期 JSON）先水合进内存：冷启动不用等联网，
+    // 切任何一周都是本地数据。哪些周有、哪些周缺，决定了后面要不要补拉。
+    if (restoredTimetableCache != null) {
+      for (final MapEntry<int, List<CourseSession>> entry
+          in restoredTimetableCache.entries) {
+        final int week = entry.key;
+        if (week >= 1 && week <= _settings.term.totalWeeks) {
+          _remote[week] = JwTimetable(
+            week: week,
+            sessions: List<CourseSession>.of(entry.value),
+          );
+        }
+      }
+    }
+
     _currentWeek = todayWeek;
     // 「空教室」默认查本周、今天（星期几直接用系统值，不受「当前显示第几周」影响）。
     _classroomQuery = JwClassroomQuery(
       week: _currentWeek,
       weekday: DateTime.now().weekday,
     );
-    // 1) 先按教务系统主页面校准学期起止（权威周次），2) 同时拉当前周课表。
+    // 1) 先按教务系统主页面校准学期起止（权威周次），2) 同时拉当前周课表
+    //    （有快照时本周已在内存里，这一步不会发请求）。
     unawaited(syncTermWithServer());
     _prepare(_currentWeek, immediate: true);
+    // 2.5) 手上有会话、快照又没铺满整学期时，后台用课表接口把总课表拉全：
+    //     每拉到一周就合并进内存并落盘成 JSON（见 [_fetchAllWeeks]）。
+    if (_client.cookie.trim().isNotEmpty) {
+      unawaited(_fetchAllWeeks());
+    }
     // 3) 通知权限 + 把已有课表的提醒排上（课表到手后还会再排一次，见 [_fetch]）。
     unawaited(_bootstrapReminders());
     // 4) 查一遍电池优化白名单状态（只查不弹框），设置页的保活栏目好显示现状。
@@ -179,8 +209,20 @@ class ScheduleController extends ChangeNotifier {
   /// 滑停之后多久才去预取相邻周。
   static const Duration prefetchDelay = Duration(milliseconds: 300);
 
-  /// 已持有的每周课表，键是**本地周次**。只活在本次会话里，不落盘。
+  /// 已持有的每周课表，键是**本地周次**。
+  ///
+  /// 数据从两处来：冷启动时由本地的课表 JSON 快照水合进来（`restoredTimetableCache`，
+  /// 见 [TimetableCacheStore]），本会话内由课表接口拉回（每次拉到都同步写回快照）。
+  /// 换账号时整份作废并清掉快照。
   final Map<int, JwTimetable> _remote = <int, JwTimetable>{};
+
+  /// 旧课表接口（`main_index_loadkb.jsp`）的每周缓存：只存排课列表，
+  /// 用来给课程详情弹窗补学分、课程属性这些新接口没有的字段。同样不落盘。
+  final Map<int, List<CourseSession>> _loadkbPool =
+      <int, List<CourseSession>>{};
+
+  /// 正在通过旧接口拉取的周次。
+  final Set<int> _loadkbLoading = <int>{};
 
   /// 正在请求的周次。
   final Set<int> _loadingWeeks = <int>{};
@@ -281,6 +323,37 @@ class ScheduleController extends ChangeNotifier {
   /// 「下一节课」桌面小组件的投递口（Android 才有真实现，其余平台空操作）。
   final WidgetUpdater _widgetUpdater;
 
+  /// 课表快照（整学期 JSON）的本地存储。
+  ///
+  /// 与 [_remote] 的关系：[_remote] 是内存里的每周数据（界面直接用），
+  /// 快照是它落盘后的样子 —— 冷启动由 `restoredTimetableCache` 还原进 [_remote]，
+  /// 每次从课表接口拿到新数据后又整份写回（见 [_saveTimetableCache]）。
+  /// 换账号 / 退出登录时跟其它教务侧数据一起清掉（见 [_dropRemoteData]）。
+  final TimetableCacheStore _timetableCacheStore;
+
+  /// 是否正在按周补拉整学期课表（见 [_fetchAllWeeks]）。
+  bool _allFetching = false;
+
+  /// 验证码识别口（ML Kit 本地 OCR；Web/桌面是永远返回 null 的桩）。
+  final CaptchaRecognizer _captchaRecognizer;
+
+  /// 当前验证码的识别结果；null = 还没识别出来（或平台不支持/识别失败）。
+  String? _captchaGuess;
+
+  /// 当前这张验证码的自动识别是否已经失败（识别口没给出结果）。
+  /// 登录页据此提示「请手动输入」，而不是让用户干等。
+  bool _captchaOcrFailed = false;
+
+  /// 每张验证码配一个「识别完成」信号：[autoLoginWithCaptcha] 等它出结果，
+  /// 避免「识别还没跑完就去提交」的竞态。
+  Completer<String?>? _captchaGuessDone;
+
+  /// 是否正在跑自动登录（识别 → 提交 → 验证码错误重试 的闭环）。
+  bool _autoLoginRunning = false;
+
+  /// 自动登录最多尝试几次（每次都换新验证码重新识别）。
+  static const int _autoLoginMaxAttempts = 3;
+
   /// 教务系统客户端（设置页展示状态用）。
   JwTimetableClient get client => _client;
 
@@ -358,6 +431,85 @@ class ScheduleController extends ChangeNotifier {
   /// 教务系统为第 [week] 周返回的周次（用于发现两边周次对不上的情况）。
   int? serverWeekOf(int week) => _remote[week]?.week;
 
+  /// 用旧课表接口（`main_index_loadkb.jsp`）给 [session] 补附加信息。
+  ///
+  /// 新课表接口比旧接口**多了老师、少了学分与课程属性**，所以详情弹窗打开时
+  /// 拿旧接口按日期再查一次，把缺的字段补上。约定：
+  /// * 只对教务课生效（自建课是用户手打的，没有「教务侧附加信息」可补）；
+  /// * 拉取失败 / 匹配不到都返回 null —— 副数据源失败**不影响课表**，
+  ///   详情弹窗只是少了几个信息行；
+  /// * 每周只拉一次（[_loadkbPool] 缓存），同周再点其它课不再发请求。
+  Future<CourseSession?> loadEnrichedSession(
+    CourseSession session,
+    int week,
+  ) async {
+    if (session.isCustom) {
+      return null;
+    }
+    // 已经有全部附加信息了，没必要再走一次旧接口。
+    if (session.course.credits != null && session.course.category != null) {
+      return null;
+    }
+
+    List<CourseSession>? pool = _loadkbPool[week];
+    if (pool == null && !_loadkbLoading.contains(week)) {
+      _loadkbLoading.add(week);
+      try {
+        // 旧接口按日期取课（教务按周一到周日分周）。本应用第 N 周从周日开始，
+        // 它的星期一（startOfWeek + 1 天）落在教务第 N 周里，与新接口 zc=N 同一口径。
+        final DateTime monday = term
+            .startOfWeek(week)
+            .add(const Duration(days: 1));
+        pool = (await _client.fetchWeekByLoadkb(monday)).sessions;
+        _loadkbPool[week] = pool;
+      } catch (error) {
+        return null; // 副数据源，失败就当没有
+      } finally {
+        _loadkbLoading.remove(week);
+      }
+    }
+    if (pool == null) {
+      return null; // 同周已经在拉了：这次先不补，下次打开详情再试
+    }
+    return _matchEnriched(pool, session);
+  }
+
+  /// 从旧接口的排课里找出 [session] 对应的那条并补齐缺失字段。
+  ///
+  /// 旧接口格子里没有老师，所以匹配只认**课名 + 星期几 + 节次有交集**；
+  /// 补的也只是新接口缺的字段，已有的一律保留（本课的教室/周次信息更准）。
+  CourseSession? _matchEnriched(
+    List<CourseSession> pool,
+    CourseSession session,
+  ) {
+    for (final CourseSession candidate in pool) {
+      if (candidate.weekday != session.weekday ||
+          candidate.course.name.trim() != session.course.name.trim() ||
+          candidate.startPeriod > session.endPeriod ||
+          candidate.endPeriod < session.startPeriod) {
+        continue;
+      }
+      return CourseSession(
+        course: Course(
+          name: session.course.name,
+          location: session.course.location,
+          teacher: session.course.teacher.isNotEmpty
+              ? session.course.teacher
+              : candidate.course.teacher,
+          credits: session.course.credits ?? candidate.course.credits,
+          category: session.course.category ?? candidate.course.category,
+        ),
+        weekday: session.weekday,
+        startPeriod: session.startPeriod,
+        endPeriod: session.endPeriod,
+        startWeek: session.startWeek,
+        endWeek: session.endWeek,
+        customId: session.customId,
+      );
+    }
+    return null;
+  }
+
   /// 教务系统主页面给出的「当前第几周」（按周一到周日）。
   int? get serverCurrentWeek => _weekInfo?.week;
 
@@ -426,23 +578,128 @@ class ScheduleController extends ChangeNotifier {
     }
     _loginLoading = true;
     _captchaImage = null;
+    // 旧图作废，旧识别结果也一起作废；新图的识别在后台补跑。
+    _captchaGuess = null;
+    _captchaOcrFailed = false;
+    final Completer<String?> guessDone = Completer<String?>();
+    _captchaGuessDone = guessDone;
     notifyListeners();
 
     try {
       final JwLoginSession session = await _client.beginLogin();
       _loginSession = session;
       _captchaImage = session.image;
+      // 图到手就后台识别：识别结果通过 [_captchaGuess] 暴露给登录页自动填入，
+      // 完成信号落在 [guessDone] 上（自动登录等它，避免「没识别完就提交」）。
+      unawaited(_recognizeCaptcha(session.image).then(guessDone.complete));
     } on JwException catch (error) {
       _loginSession = null;
       // 已经有失败原因时**不要覆盖**：「密码错了」比「验证码没取到」更是用户要看的那条；
       // 验证码位会退化成「点此获取」，用户点一下就能重试。
       _loginError ??= error.message;
+      guessDone.complete(null);
     } catch (error) {
       _loginSession = null;
       _loginError ??= '获取验证码失败：$error';
+      guessDone.complete(null);
     } finally {
       _loginLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// 识别当前验证码图，把结果写进 [_captchaGuess] 并通知界面自动填入。
+  ///
+  /// 图在识别期间被换掉（用户点了「换一张」）时丢弃结果 —— 旧字符填到新图上
+  /// 注定是错的。识别器**不抛异常**（见 [CaptchaRecognizer]），但这里仍兜一层。
+  Future<String?> _recognizeCaptcha(Uint8List image) async {
+    String? guess;
+    try {
+      guess = await _captchaRecognizer.recognize(image);
+    } catch (_) {
+      guess = null;
+    }
+    if (!identical(image, _captchaImage)) {
+      return null;
+    }
+    if (guess != null && guess.isNotEmpty) {
+      _captchaGuess = guess;
+      _captchaOcrFailed = false;
+      notifyListeners();
+    } else {
+      // 这张图识别不出来：登录页会提示手动输入，别让用户干等。
+      _captchaOcrFailed = true;
+    }
+    return guess;
+  }
+
+  /// 当前验证码的识别结果（登录页自动填入验证码输入框用）。
+  String? get captchaGuess => _captchaGuess;
+
+  /// 当前这张验证码的自动识别是否已失败（该提示用户手动输入了）。
+  bool get captchaOcrFailed => _captchaOcrFailed;
+
+  /// 等当前验证码的识别结果：已有就直接给，没有就等识别完成信号（最多 12s）。
+  ///
+  /// 登录页手动提交时也用它兜底 —— 用户点登录的瞬间识别可能还在跑，
+  /// 等一下就能用上结果，不用白白提交一次空验证码。
+  Future<String?> awaitCaptchaGuess() async {
+    if (_captchaGuess != null) {
+      return _captchaGuess;
+    }
+    final Completer<String?>? done = _captchaGuessDone;
+    if (done == null) {
+      return null;
+    }
+    try {
+      return await done.future.timeout(const Duration(seconds: 12));
+    } on TimeoutException {
+      return _captchaGuess;
+    }
+  }
+
+  /// 自动登录：识别验证码 → 提交表单；服务端报「验证码错误」时自动换图重试。
+  ///
+  /// 本校验证码是干净的白底字符，本地 OCR 基本稳对；偶有读错，服务端只报
+  /// 验证码错（[submitLogin] 失败后已经自动换好新图并重新发起识别），
+  /// 所以同一套账号密码最多重试 [_autoLoginMaxAttempts] 次。其它失败
+  /// （账号/密码错、网络挂）不重试 —— 重试也不会变好，留着错误信息给用户看。
+  ///
+  /// 识别不出（平台不支持 / 模型没就绪）直接返回 false，用户手动输入。
+  Future<bool> autoLoginWithCaptcha({
+    required String account,
+    required String password,
+    bool rememberPassword = false,
+  }) async {
+    if (_autoLoginRunning || account.isEmpty || password.isEmpty) {
+      return false;
+    }
+    _autoLoginRunning = true;
+    try {
+      for (var attempt = 0; attempt < _autoLoginMaxAttempts; attempt++) {
+        final String? guess = await awaitCaptchaGuess();
+        if (guess == null || guess.isEmpty) {
+          return false;
+        }
+        _captchaGuess = guess;
+        notifyListeners();
+        final bool ok = await submitLogin(
+          account: account,
+          password: password,
+          captcha: guess,
+          rememberPassword: rememberPassword,
+        );
+        if (ok) {
+          return true;
+        }
+        final String? error = _loginError;
+        if (error == null || !error.contains('验证码')) {
+          return false;
+        }
+      }
+      return false;
+    } finally {
+      _autoLoginRunning = false;
     }
   }
 
@@ -500,7 +757,9 @@ class ScheduleController extends ChangeNotifier {
         password: rememberPassword ? password : '',
       );
       notifyListeners();
+      // 先把当前周拉下来（登录后立刻有课表看），其余周后台补全并落盘成 JSON。
       await _fetch(_currentWeek, force: true);
+      unawaited(_fetchAllWeeks(force: true));
       ok = true;
     } on JwException catch (error) {
       _loginError = error.message;
@@ -568,6 +827,50 @@ class ScheduleController extends ChangeNotifier {
     }
     notifyListeners();
     await _syncReminders();
+    // 冷启动也把排期窗口往前铺满：只靠「当前周 + 相邻周」预取，窗口末端
+    // （第 8 天往后的日子）可能落在还没拉的周上，那些课就没有提醒。
+    await ensureReminderHorizon();
+  }
+
+  /// 把提醒排期窗口（[reminderHorizon]，14 天）覆盖到、但手里还没有的周课表
+  /// **自动往下查询**回来。
+  ///
+  /// 每条提醒触发之后，窗口末端就往未来挪了一点，可能伸进还没拉过的周——
+  /// 下次 App 冷启动或回到前台时（见 [onAppResumed]）调用这里，把缺的周补上；
+  /// 每拉到一周，[_fetch] 的收尾会自动重排提醒，新覆盖到的课就排进系统闹钟。
+  ///
+  /// 幂等：已在 [_remote] / 正在拉取的周直接跳过；没登录时拉取失败会安静记错，
+  /// 不会重试循环。串行拉取（一次一周），避免占用预取的并发额度。
+  Future<void> ensureReminderHorizon() async {
+    if (!_notifier.isSupported || !_reminderSettings.enabled) {
+      return;
+    }
+    final DateTime now = DateTime.now();
+    final int first = term.weekOf(now);
+    final int last = term.weekOf(now.add(reminderHorizon));
+    for (int week = first; week <= last; week++) {
+      if (week < 1 || week > term.totalWeeks) {
+        continue;
+      }
+      if (_remote.containsKey(week) || _loadingWeeks.contains(week)) {
+        continue;
+      }
+      await _fetch(week);
+    }
+  }
+
+  /// App 回到前台时的提醒巡检。
+  ///
+  /// Android 在通知弹出时不会唤醒应用，所以「提醒触发后自动往下排」落在
+  /// 用户下次打开 App 的这个瞬间：把已经触发的提醒从待办里清掉（重排），
+  /// 再把排期窗口往前延伸（[ensureReminderHorizon]）。
+  Future<void> onAppResumed() async {
+    if (!_notifier.isSupported) {
+      return;
+    }
+    await refreshReminderPermission();
+    await _syncReminders();
+    await ensureReminderHorizon();
   }
 
   /// 重新查一遍通知权限状态（**不弹窗**）。
@@ -632,7 +935,8 @@ class ScheduleController extends ChangeNotifier {
     if (!_keepAlivePlatform.isSupported) {
       return;
     }
-    _ignoringBattery = await _keepAlivePlatform.isIgnoringBatteryOptimizations();
+    _ignoringBattery = await _keepAlivePlatform
+        .isIgnoringBatteryOptimizations();
     notifyListeners();
   }
 
@@ -725,6 +1029,7 @@ class ScheduleController extends ChangeNotifier {
       return;
     }
     await _syncReminders();
+    await ensureReminderHorizon();
   }
 
   /// 按当前手里的课表重排提醒。重复调用是安全的。
@@ -762,7 +1067,9 @@ class ScheduleController extends ChangeNotifier {
     // 摊到学期外的周由 planner 自己裁掉（它按 [reminderHorizon] 过滤）。
     for (final CustomCourse course in _customCourses) {
       for (int week = course.startWeek; week <= course.endWeek; week++) {
-        byWeek.putIfAbsent(week, () => <CourseSession>[]).add(course.toSession());
+        byWeek
+            .putIfAbsent(week, () => <CourseSession>[])
+            .add(course.toSession());
       }
     }
     final List<ClassReminder> planned = planClassReminders(
@@ -801,10 +1108,14 @@ class ScheduleController extends ChangeNotifier {
   /// **自建课程不在此列**：那是用户自己敲进去的数据，换个账号登录不该把它清掉。
   void _dropRemoteData() {
     _remote.clear();
+    _loadkbPool.clear();
     _notices.clear();
     _errors.clear();
     _loadingWeeks.clear();
     _pendingWeeks.clear();
+    // 课表快照是「教务侧」的数据（整学期 JSON），换账号 / 退出登录一并清掉；
+    // 新账号登录成功后 [_fetchAllWeeks] 会整份重建。
+    unawaited(_timetableCacheStore.clear());
     _selectionRounds = null;
     _selectionError = null;
     _classroomBoard = null;
@@ -1193,11 +1504,14 @@ class ScheduleController extends ChangeNotifier {
     return value > max ? max : value;
   }
 
-  /// 强制重新拉取当前周。
+  /// 强制重新拉取：把整学期总课表重拉一遍并重建本地 JSON 快照。
+  ///
+  /// 界面先看到的是当前周的变化（fetch-all 按周次顺序推进，每完成一周就刷新）；
+  /// 期间并发来的 refresh 请求会被 [_fetchAllWeeks] 挡掉，只跑这一轮。
   Future<void> refresh() async {
     _debounce?.cancel();
-    _pendingWeeks.remove(_currentWeek);
-    await _fetch(_currentWeek, force: true);
+    _pendingWeeks.clear();
+    await _fetchAllWeeks(force: true);
   }
 
   /// 是否已经销毁。
@@ -1291,6 +1605,8 @@ class ScheduleController extends ChangeNotifier {
             ),
         ],
       );
+      // 课表接口拿到的数据整份并进本地 JSON 快照：下次冷启动不用再问教务系统。
+      unawaited(_saveTimetableCache());
     } catch (error) {
       final String message = error is JwException
           ? error.message
@@ -1314,6 +1630,76 @@ class ScheduleController extends ChangeNotifier {
       _pushWidgetUpdate();
     }
   }
+
+  /// 用课表接口把**整学期总课表**拉全：从第 1 周到第 [AppSettings.term] 的总周数
+  /// 逐周请求（接口按 `zc=周次` 返回单周），每拉到一周就合并进内存并落盘成
+  /// 本地 JSON 快照。之后界面切周、上课提醒、桌面小组件全走本地数据。
+  ///
+  /// 触发时机：
+  /// * 冷启动 —— 有会话且快照没铺满整学期时补拉缺失的周（[force] = false）；
+  /// * 登录成功 —— 新账号的课表整份重建（[force] = true）；
+  /// * 手动刷新 —— 整学期重新拉一遍（[force] = true）。
+  ///
+  /// 串行逐周请求（复用同一条 keep-alive 连接），每完成一周就 notify 一次，
+  /// 界面能看着课表一格一格长出来。单周失败只记那一周的错，不影响其余周。
+  Future<void> _fetchAllWeeks({bool force = false}) async {
+    if (_allFetching) {
+      return; // 同一轮总拉取不并发重复
+    }
+    final int total = term.totalWeeks;
+    final List<int> targets = <int>[
+      for (var week = 1; week <= total; week++)
+        if (force || !_remote.containsKey(week)) week,
+    ];
+    if (targets.isEmpty) {
+      return; // 快照已经铺满整学期，不用联网
+    }
+    _allFetching = true;
+    // 当前要看的那周排最前：界面反馈最快（轮到它时 [_fetch] 自己会接管加载状态）。
+    if (targets.remove(_currentWeek)) {
+      targets.insert(0, _currentWeek);
+    }
+    notifyListeners();
+    try {
+      for (final int week in targets) {
+        if (_disposed) {
+          return;
+        }
+        await _fetch(week, force: force);
+      }
+    } finally {
+      _allFetching = false;
+      notifyListeners();
+    }
+  }
+
+  /// 把 [_remote] 的整份课表写进本地 JSON 快照。
+  ///
+  /// 每次从课表接口拿到新数据都会调这里；写入期间再来的请求只标脏，
+  /// 等这轮写完再补一轮，保证最后一版快照一定是最新内容。
+  Future<void> _saveTimetableCache() async {
+    if (_cacheSaving) {
+      _cacheSavePending = true;
+      return;
+    }
+    _cacheSaving = true;
+    try {
+      await _timetableCacheStore.write(<int, List<CourseSession>>{
+        for (final MapEntry<int, JwTimetable> entry in _remote.entries)
+          entry.key: entry.value.sessions,
+      });
+    } finally {
+      _cacheSaving = false;
+      if (_cacheSavePending && !_disposed) {
+        _cacheSavePending = false;
+        await _saveTimetableCache();
+      }
+    }
+  }
+
+  /// 快照写入互斥（见 [_saveTimetableCache]）。
+  bool _cacheSaving = false;
+  bool _cacheSavePending = false;
 
   /// 预取相邻周，让左右滑动「秒开」。
   Future<void> _prefetchNeighbours(int week) async {

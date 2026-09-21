@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:class_schedule/data/class_notifier.dart';
@@ -9,10 +11,13 @@ import 'package:class_schedule/data/jw_client.dart';
 import 'package:class_schedule/data/jw_http.dart';
 import 'package:class_schedule/data/keep_alive_platform.dart';
 import 'package:class_schedule/data/keep_alive_store.dart';
+import 'package:class_schedule/data/captcha_recognizer.dart';
 import 'package:class_schedule/data/reminder_store.dart';
+import 'package:class_schedule/data/timetable_cache.dart';
 import 'package:class_schedule/data/widget_updater.dart';
 import 'package:class_schedule/main.dart';
 import 'package:class_schedule/models/custom_course.dart';
+import 'package:class_schedule/models/course.dart';
 import 'package:class_schedule/models/keep_alive.dart';
 import 'package:class_schedule/models/next_class.dart';
 import 'package:class_schedule/models/reminder.dart';
@@ -67,9 +72,8 @@ final String fixtureSelectionRoundsHtml = File(
 ///
 /// 结构照抄强智 jsxsd 的教室查询页：一行一间教室，一列一个大节，
 /// 表头两行（第一行星期几、第二行节次），格子里有内容就是有课。
-final String fixtureClassroomHtml = File(
-  'test/fixtures/kbxx_classroom.html',
-).readAsStringSync();
+final String fixtureClassroomHtml = File('test/fixtures/kbxx_classroom.html')
+    .readAsStringSync();
 
 /// 真实抓取到的**登录失败**响应（用错账号密码提交后，教务系统把登录页打回来，
 /// 并且把原因写进 `#showMsg`）。
@@ -94,6 +98,153 @@ final Uint8List fakeCaptchaImage = base64Decode(
 
 /// 解析好的夹具内容，方便断言。
 final JwTimetable fixtureTimetable = JwTimetableParser.parse(fixtureHtml);
+
+/// **真实抓取**的旧课表接口（`framework/main_index_loadkb.jsp`）响应
+/// （2026-09-21 带会话抓取，rq=2026-09-21，内容只有课程数据、无个人信息）。
+///
+/// 结构与新接口的 `kbtable` **完全不同**：表格 id 是 `tab1`，行首是 `<td>`，
+/// 课程信息全在 `<p title='课程学分：…<br/>课程属性：…<br/>课程名称：…<br/>
+/// 上课时间：…<br/>上课地点：…'>` 里，格子里**没有老师**；周次在
+/// `li_showWeek` 脚本里。解析器见 [JwLoadkbParser]。
+const String fixtureLoadkbHtml = '''
+<form target="hideFrame" method="post" name="Form1" id="Form1" action="" >
+<table id="tab1" class="table table-bordered table-hover table-striped kb_table" style="overflow: scroll;height: 95%;">
+<thead>
+<tr>
+<th style="width: 14%;">周/节次</th>
+<th style="width: 12%;">星期一</th>
+<th style="width: 12%;">星期二</th>
+<th style="width: 12%;">星期三</th>
+<th style="width: 12%;">星期四</th>
+<th style="width: 12%;">星期五</th>
+<th style="width: 12%;">星期六</th>
+<th style="width: 12%;">星期日</th>
+</tr>
+</thead>
+<tbody>
+<tr >
+<td>第一二节
+<br/>(01,02小节)
+<br/>08:20-09:55
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：3<br/>课程属性：必修<br/>课程名称：线性代数<br/>上课时间：第4周 星期三 [01-02]节<br/>上课地点：J3-311' style='text-align: left;font-size: 12px;font-weight: bold;null'  >线性代数</p>
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+</td>
+</tr>
+<tr >
+<td>第三四节
+<br/>(03,04小节)
+<br/>10:15-11:50
+</td>
+<td>
+<p title = '课程学分：3<br/>课程属性：必修<br/>课程名称：概率论与数理统计<br/>上课时间：第4周 星期一 [03-04]节<br/>上课地点：J1-414' style='text-align: left;font-size: 12px;font-weight: bold;null'  >概率论与数理..</p>
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：2<br/>课程属性：必修<br/>课程名称：中国近现代史纲要<br/>上课时间：第4周 星期三 [03-04]节<br/>上课地点：J3-304' style='text-align: left;font-size: 12px;font-weight: bold;null'  >中国近现代史..</p>
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：1<br/>课程属性：必修<br/>课程名称：大学体育I<br/>上课时间：第4周 星期五 [03-04]节<br/>上课地点：笃行楼综合训练场（3）' style='text-align: left;font-size: 12px;font-weight: bold;null'  >大学体育I</p>
+</td>
+<td>
+</td>
+<td>
+</td>
+</tr>
+<tr >
+<td>第五六节
+<br/>(05,06小节)
+<br/>14:30-16:05
+</td>
+<td>
+<p title = '课程学分：3<br/>课程属性：必修<br/>课程名称：线性代数<br/>上课时间：第4周 星期一 [05-06]节<br/>上课地点：J1-507' style='text-align: left;font-size: 12px;font-weight: bold;null'  >线性代数</p>
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：4<br/>课程属性：必修<br/>课程名称：Python程序设计<br/>上课时间：第4周 星期五 [05-06]节<br/>上课地点：S5704AI全流程实验室' style='text-align: left;font-size: 12px;font-weight: bold;null'  >Python..</p>
+</td>
+<td>
+</td>
+<td>
+</td>
+</tr>
+<tr >
+<td>第七八节
+<br/>(07,08小节)
+<br/>16:25-18:00
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：3<br/>课程属性：必修<br/>课程名称：概率论与数理统计<br/>上课时间：第4周 星期三 [07-08]节<br/>上课地点：J1-414' style='text-align: left;font-size: 12px;font-weight: bold;null'  >概率论与数理..</p>
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：4<br/>课程属性：必修<br/>课程名称：Python程序设计<br/>上课时间：第4周 星期五 [07-08]节<br/>上课地点：S5704AI全流程实验室' style='text-align: left;font-size: 12px;font-weight: bold;null'  >Python..</p>
+</td>
+<td>
+</td>
+<td>
+</td>
+</tr>
+<tr >
+<td>第九十十一节
+<br/>(09,10,11小节)
+<br/>19:00-21:25
+</td>
+<td>
+</td>
+<td>
+<p title = '课程学分：2<br/>课程属性：必修<br/>课程名称：军事理论<br/>上课时间：第4周 星期二 [09-10-11]节<br/>上课地点：J2-401' style='text-align: left;font-size: 12px;font-weight: bold;null'  >军事理论</p>
+</td>
+<td>
+<p title = '课程学分：3<br/>课程属性：必修<br/>课程名称：大学日语Ⅰ<br/>上课时间：第4周 星期三 [09-10-11]节<br/>上课地点：J2-401' style='text-align: left;font-size: 12px;font-weight: bold;null'  >大学日语Ⅰ</p>
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+</td>
+<td>
+</td>
+</tr>
+</tbody>
+</table>
+
+
+<iframe name="hideFrame"  id="hideFrame" style="display:none"></iframe>
+<script type="text/javascript">
+
+
+\$("#li_showWeek").html("<span class=\\"main_text main_color\\">第4周</span>/20周");
+
+
+</script>
+''';
 
 /// 正常响应的传输层：主页面给出「今天的教务周次 / 20 周」
 /// （反推第 1 周周日 = 2026-08-30，与 [defaultTerm] 一致），课表接口返回第 4 周夹具。
@@ -140,6 +291,9 @@ Widget jwApp({
   KeepAlivePlatform? keepAlivePlatform,
   KeepAliveSettings? restoredKeepAlive,
   WidgetUpdater? widgetUpdater,
+  TimetableCacheStore? timetableCacheStore,
+  Map<int, List<CourseSession>>? restoredTimetableCache,
+  CaptchaRecognizer? captchaRecognizer,
 }) => ClassScheduleApp(
   transport: transport ?? jwOkTransport,
   detailedTransport: loginTransport ?? FakeLoginTransport().call,
@@ -154,8 +308,69 @@ Widget jwApp({
   keepAlivePlatform: keepAlivePlatform ?? FakeKeepAlivePlatform(),
   restoredKeepAlive: restoredKeepAlive,
   widgetUpdater: widgetUpdater ?? FakeWidgetUpdater(),
+  timetableCacheStore: timetableCacheStore ?? FakeTimetableCacheStore(),
+  restoredTimetableCache: restoredTimetableCache,
+  captchaRecognizer: captchaRecognizer,
   swipeDebounce: Duration.zero,
 );
+
+/// 假验证码识别器：按预先给定的答案序列依次返回，用于测自动登录闭环。
+///
+/// 答案用完后一直返回最后一个（`null` 表示识别不出）。
+/// 可选的 [gate] 未完成时 [recognize] 挂起 —— 用来模拟「识别还在跑」。
+class FakeCaptchaRecognizer implements CaptchaRecognizer {
+  FakeCaptchaRecognizer(this.answers, {this.gate});
+
+  /// 每次识别依次取一个答案。
+  final List<String?> answers;
+
+  /// 不为 null 时：它完成前 [recognize] 一直等着。
+  Completer<void>? gate;
+
+  /// 识别被调用的次数。
+  int calls = 0;
+
+  @override
+  Future<String?> recognize(Uint8List imageBytes) async {
+    final Completer<void>? pending = gate;
+    if (pending != null) {
+      await pending.future;
+    }
+    if (answers.isEmpty) {
+      return null;
+    }
+    final int index = math.min(calls, answers.length - 1);
+    calls += 1;
+    return answers[index];
+  }
+}
+
+/// 内存里的课表快照存储：不碰磁盘，顺便记下写 / 清了几次。
+class FakeTimetableCacheStore implements TimetableCacheStore {
+  /// 当前存着的每周课表。
+  Map<int, List<CourseSession>> value = <int, List<CourseSession>>{};
+
+  /// 写入次数。
+  int writes = 0;
+
+  /// 清除次数。
+  int clears = 0;
+
+  @override
+  Future<Map<int, List<CourseSession>>> read() async => value;
+
+  @override
+  Future<void> write(Map<int, List<CourseSession>> weeks) async {
+    writes += 1;
+    value = weeks;
+  }
+
+  @override
+  Future<void> clear() async {
+    clears += 1;
+    value = <int, List<CourseSession>>{};
+  }
+}
 
 /// 内存里的账户存储：不碰磁盘，顺便记下写 / 清了几次。
 class FakeAccountStore implements JwAccountStore {
@@ -194,9 +409,12 @@ class FakeLoginTransport {
   FakeLoginTransport({
     this.loginHtml = fixtureLoginOkHtml,
     this.loginError,
+    this.firstLoginError,
     this.captchaError,
     this.captchaCookie = 'JSESSIONID=login-before; HWWAFSESID=waf123',
     this.loginCookie = 'JSESSIONID=after-login; HWWAFSESID=waf123',
+    this.warmupCookie = 'HWWAFSESID=waf-warmup',
+    this.warmupError,
     this.captchaContentType = 'image/png',
   });
 
@@ -205,6 +423,10 @@ class FakeLoginTransport {
 
   /// 登录提交要抛的异常（null 表示成功返回）。
   final Object? loginError;
+
+  /// **第一次**登录提交返回的失败原因（写成登录页 `#showMsg` 的样子），
+  /// 之后的提交回到 [loginHtml]。用来测「验证码错误自动重试」。
+  final String? firstLoginError;
 
   /// 取验证码要抛的异常（null 表示正常给一张图）。
   final Object? captchaError;
@@ -215,14 +437,27 @@ class FakeLoginTransport {
   /// 登录成功后响应下发的新会话。
   final String loginCookie;
 
+  /// 开始登录时「裸访问」登录页响应下发的 Cookie（不含 JSESSIONID：
+  /// 验证码绑定的会话仍由验证码响应下发）。
+  final String warmupCookie;
+
+  /// 裸访问登录页要抛的异常（null 表示成功返回）。
+  final Object? warmupError;
+
   /// 验证码响应的 MIME 类型，用来测「接口没返回图片」的分支。
   final String captchaContentType;
 
   /// 验证码请求次数。
   int captchaCalls = 0;
 
+  /// 预热 GET 次数。
+  int warmupCalls = 0;
+
   /// 登录提交次数。
   int loginCalls = 0;
+
+  /// 最后一次预热 GET 带的会话（`X-JW-Cookie`）。
+  String? lastWarmupCookie;
 
   /// 最后一次登录提交的表单正文。
   String? lastLoginBody;
@@ -250,6 +485,23 @@ class FakeLoginTransport {
       );
     }
 
+    // 登录开始时的裸访问 GET：不带任何 Cookie，模拟浏览器首次打开登录页。
+    if (method == 'GET') {
+      warmupCalls += 1;
+      lastWarmupCookie = requestHeaders['X-JW-Cookie'];
+      final Object? warmupFailure = warmupError;
+      if (warmupFailure != null) {
+        throw warmupFailure;
+      }
+      return JwHttpResponse(
+        statusCode: 200,
+        bytes: Uint8List.fromList(utf8.encode(loginHtml)),
+        cookie: warmupCookie,
+        contentType: 'text/html',
+        charset: 'utf-8',
+      );
+    }
+
     loginCalls += 1;
     lastLoginBody = body;
     lastLoginCookie = requestHeaders['X-JW-Cookie'];
@@ -257,6 +509,22 @@ class FakeLoginTransport {
     final Object? failure = loginError;
     if (failure != null) {
       throw failure;
+    }
+    // 第一次提交按指定原因失败（返回登录页 + #showMsg），第二次起正常。
+    final String? firstFailure = firstLoginError;
+    if (firstFailure != null && loginCalls == 1) {
+      return JwHttpResponse(
+        statusCode: 200,
+        bytes: Uint8List.fromList(
+          utf8.encode(
+            '<html><body><li id="showMsg">$firstFailure</li>'
+            '<input name="userAccount"></body></html>',
+          ),
+        ),
+        cookie: captchaCookie,
+        contentType: 'text/html',
+        charset: 'utf-8',
+      );
     }
     return JwHttpResponse(
       statusCode: 200,
@@ -275,15 +543,18 @@ class RecordingTransport {
     this.weekInfoError,
     this.selectionError,
     this.classroomError,
+    this.loadkbError,
     this.delay = Duration.zero,
     String? weekInfoHtml,
     String? timetableHtml,
     String? selectionHtml,
     String? classroomHtml,
+    String? loadkbHtml,
   }) : weekInfoHtml = weekInfoHtml ?? fixtureWeekInfoHtmlToday,
        timetableHtml = timetableHtml ?? fixtureHtml,
        selectionHtml = selectionHtml ?? fixtureSelectionEmptyHtml,
-       classroomHtml = classroomHtml ?? fixtureClassroomHtml;
+       classroomHtml = classroomHtml ?? fixtureClassroomHtml,
+       loadkbHtml = loadkbHtml ?? fixtureLoadkbHtml;
 
   /// 课表请求要抛的异常（null 表示成功）。
   final Object? error;
@@ -297,6 +568,9 @@ class RecordingTransport {
   /// 教室空余查询要抛的异常（null 表示成功）。
   final Object? classroomError;
 
+  /// 旧课表接口要抛的异常（null 表示成功）。
+  final Object? loadkbError;
+
   /// 模拟网络耗时。
   final Duration delay;
 
@@ -304,6 +578,7 @@ class RecordingTransport {
   final String timetableHtml;
   final String selectionHtml;
   final String classroomHtml;
+  final String loadkbHtml;
 
   /// 全部请求的方法。
   final List<String> methods = <String>[];
@@ -316,6 +591,9 @@ class RecordingTransport {
 
   /// 教室查询 POST 的表单体（`xqid=&jzwid=&zc1=&…`）。
   final List<String> classroomBodies = <String>[];
+
+  /// 旧课表接口 POST 的表单体（`rq=YYYY-MM-DD&sjmsValue=`）。
+  final List<String> loadkbBodies = <String>[];
 
   /// 每次请求的请求头。
   final List<Map<String, String>> headers = <Map<String, String>>[];
@@ -340,8 +618,11 @@ class RecordingTransport {
     final bool isMainPage = url.path.contains('xsMain');
     final bool isSelection = url.path.contains('xklc');
     final bool isClassroom = url.path.contains('kbxx_classroom');
+    final bool isLoadkb = url.path.contains('main_index_loadkb');
     if (isClassroom) {
       classroomBodies.add(body);
+    } else if (isLoadkb) {
+      loadkbBodies.add(body);
     } else if (!isMainPage && !isSelection) {
       bodies.add(body);
     }
@@ -356,6 +637,14 @@ class RecordingTransport {
         throw failure;
       }
       return classroomHtml;
+    }
+
+    if (isLoadkb) {
+      final Object? failure = loadkbError;
+      if (failure != null) {
+        throw failure;
+      }
+      return loadkbHtml;
     }
 
     if (isSelection) {
@@ -527,6 +816,9 @@ class FakeKeepAlivePlatform implements KeepAlivePlatform {
   int batteryListOpens = 0;
   int appDetailsOpens = 0;
 
+  /// 通过 openUrl 打开过的链接（按调用顺序）。
+  List<String> openedUrls = <String>[];
+
   @override
   bool get isSupported => supported;
 
@@ -555,6 +847,12 @@ class FakeKeepAlivePlatform implements KeepAlivePlatform {
   @override
   Future<bool> openAppDetailsSettings() async {
     appDetailsOpens += 1;
+    return true;
+  }
+
+  @override
+  Future<bool> openUrl(String url) async {
+    openedUrls.add(url);
     return true;
   }
 }

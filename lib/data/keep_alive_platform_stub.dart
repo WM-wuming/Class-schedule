@@ -26,4 +26,7 @@ class _UnsupportedKeepAlivePlatform implements KeepAlivePlatform {
 
   @override
   Future<bool> openAppDetailsSettings() async => false;
+
+  @override
+  Future<bool> openUrl(String url) async => false;
 }

@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 
 import '../state/schedule_controller.dart';
 import '../theme/course_palette.dart';
+import 'sheet_surface.dart';
 
 /// 弹出「保活指引」底部弹层。
 ///
@@ -14,12 +15,13 @@ import '../theme/course_palette.dart';
 Future<void> showKeepAliveGuide(
   BuildContext context, {
   required ScheduleController controller,
-}) => showFSheet<void>(
+}) => showAppSheet<void>(
   context: context,
-  side: FLayout.btt,
-  builder: (BuildContext sheetContext) => _KeepAliveGuideSheet(
-    controller: controller,
-    onClose: () => Navigator.of(sheetContext).maybePop(),
+  builder: (BuildContext sheetContext) => SheetSurface(
+    child: _KeepAliveGuideSheet(
+      controller: controller,
+      onClose: () => Navigator.of(sheetContext).maybePop(),
+    ),
   ),
 );
 
@@ -77,27 +79,22 @@ class _KeepAliveGuideSheet extends StatelessWidget {
                     const SizedBox(height: 12),
                   ],
                   _GroupLabel('第一步 · 允许自启动'),
-                  const _GuideCard(
-                    <String>[
-                      '系统设置 → 应用管理 → 广应课课表 → 自启动，打开开关。',
-                      '小米/华为/OPPO/vivo 等机型有独立的「自启动管理」入口，点下面的按钮直达。',
-                    ],
-                  ),
+                  const _GuideCard(<String>[
+                    '系统设置 → 应用管理 → 广应科课表 → 自启动，打开开关。',
+                    '小米/华为/OPPO/vivo 等机型有独立的「自启动管理」入口，点下面的按钮直达。',
+                  ]),
                   const SizedBox(height: 10),
                   _ActionRow(
                     label: '去自启动设置',
                     icon: FLucideIcons.power,
-                    onTap: () =>
-                        unawaited(controller.openAutoStartSettings()),
+                    onTap: () => unawaited(controller.openAutoStartSettings()),
                   ),
                   const SizedBox(height: 12),
                   _GroupLabel('第二步 · 后台不受限制'),
-                  const _GuideCard(
-                    <String>[
-                      '设置 → 电池 → 找到本应用 → 选「不受限制 / 无限制 / 允许后台运行」。',
-                      'Android 原生入口在「电池优化」列表里：全部应用 → 广应课课表 → 不优化。',
-                    ],
-                  ),
+                  const _GuideCard(<String>[
+                    '设置 → 电池 → 找到本应用 → 选「不受限制 / 无限制 / 允许后台运行」。',
+                    'Android 原生入口在「电池优化」列表里：全部应用 → 广应科课表 → 不优化。',
+                  ]),
                   const SizedBox(height: 10),
                   if (controller.keepAliveSupported) ...<Widget>[
                     _ActionRow(
@@ -118,18 +115,15 @@ class _KeepAliveGuideSheet extends StatelessWidget {
                     const SizedBox(height: 12),
                   ],
                   _GroupLabel('第三步 · 锁定后台（可选）'),
-                  const _GuideCard(
-                    <String>[
-                      '打开最近任务（多任务）卡片，下拉本应用卡片出现锁图标即已锁定。',
-                      '再在系统的通知设置里确认「上课提醒」渠道没有被静音或关闭。',
-                    ],
-                  ),
+                  const _GuideCard(<String>[
+                    '打开最近任务（多任务）卡片，下拉本应用卡片出现锁图标即已锁定。',
+                    '再在系统的通知设置里确认「上课提醒」渠道没有被静音或关闭。',
+                  ]),
                   const SizedBox(height: 12),
                   _ActionRow(
                     label: '打开应用详情页',
                     icon: FLucideIcons.settings2,
-                    onTap: () =>
-                        unawaited(controller.openAppDetailsSettings()),
+                    onTap: () => unawaited(controller.openAppDetailsSettings()),
                   ),
                 ],
               ),

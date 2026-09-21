@@ -14,6 +14,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes.dart';
 
+/// 轮询等待 [cond] 成立（异步收尾如延伸拉取不好精确计时，最多等 2 秒）。
+Future<void> waitUntil(bool Function() cond) async {
+  for (var i = 0; i < 100 && !cond(); i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+}
+
 /// 一门课在第 [weekday] 天第 [startPeriod] 节。[weekday] 用 `DateTime.monday` 这类常量。
 CourseSession session({
   required int weekday,
@@ -75,7 +82,8 @@ void main() {
 
     test('提前量超出范围时夹回范围内', () {
       expect(
-        ClassReminderSettings.fromJson(<String, dynamic>{'lead': 0}).leadMinutes,
+        ClassReminderSettings.fromJson(<String, dynamic>{'lead': 0})
+            .leadMinutes,
         ClassReminderSettings.minLeadMinutes,
       );
       expect(
@@ -94,10 +102,7 @@ void main() {
         const ClassReminderSettings(leadMinutes: 45).leadLabel,
         '提前 45 分钟',
       );
-      expect(
-        const ClassReminderSettings(leadMinutes: 60).leadLabel,
-        '提前 1 小时',
-      );
+      expect(const ClassReminderSettings(leadMinutes: 60).leadLabel, '提前 1 小时');
     });
   });
 
@@ -115,15 +120,12 @@ void main() {
     );
 
     /// 第 4 周周一第 1-2 节的一门课。
-    Map<int, List<CourseSession>> oneMondayClass() => <int, List<CourseSession>>{
-      4: <CourseSession>[
-        session(
-          weekday: DateTime.monday,
-          startPeriod: 1,
-          endPeriod: 2,
-        ),
-      ],
-    };
+    Map<int, List<CourseSession>> oneMondayClass() =>
+        <int, List<CourseSession>>{
+          4: <CourseSession>[
+            session(weekday: DateTime.monday, startPeriod: 1, endPeriod: 2),
+          ],
+        };
 
     test('提醒时刻就是上课时刻往前推提前量', () {
       final List<ClassReminder> result = plan(sessions: oneMondayClass());
@@ -159,7 +161,10 @@ void main() {
     });
 
     test('已经上过的课不再提醒', () {
-      expect(plan(sessions: oneMondayClass(), now: DateTime(2026, 9, 21, 10)), isEmpty);
+      expect(
+        plan(sessions: oneMondayClass(), now: DateTime(2026, 9, 21, 10)),
+        isEmpty,
+      );
     });
 
     test('该提醒的时刻已经过去就不补发（免得每次冷启动都弹一串）', () {
@@ -194,7 +199,12 @@ void main() {
       final Map<int, List<CourseSession>> sessions = <int, List<CourseSession>>{
         // 只在第 5 周上，却挂在第 4 周的数据里
         4: <CourseSession>[
-          session(weekday: DateTime.monday, startPeriod: 1, startWeek: 5, endWeek: 5),
+          session(
+            weekday: DateTime.monday,
+            startPeriod: 1,
+            startWeek: 5,
+            endWeek: 5,
+          ),
         ],
       };
       expect(plan(sessions: sessions), isEmpty);
@@ -225,18 +235,19 @@ void main() {
         sessions: sessions,
         now: DateTime(2026, 9, 20, 6),
       );
-      expect(result.map((ClassReminder item) => item.whenLabel).toList(), <String>[
-        '周一 9/21 08:20',
-        '周一 9/21 14:30',
-        '周三 9/23 08:20',
-      ]);
+      expect(
+        result.map((ClassReminder item) => item.whenLabel).toList(),
+        <String>['周一 9/21 08:20', '周一 9/21 14:30', '周三 9/23 08:20'],
+      );
     });
 
     test('节次表里没有的节次算不出时间，跳过', () {
       expect(
         plan(
           sessions: <int, List<CourseSession>>{
-            4: <CourseSession>[session(weekday: DateTime.monday, startPeriod: 99)],
+            4: <CourseSession>[
+              session(weekday: DateTime.monday, startPeriod: 99),
+            ],
           },
         ),
         isEmpty,
@@ -396,7 +407,9 @@ void main() {
     });
 
     test('重新打开开关会申请权限，拿到就排期', () async {
-      final FakeReminderNotifier notifier = FakeReminderNotifier(granted: false);
+      final FakeReminderNotifier notifier = FakeReminderNotifier(
+        granted: false,
+      );
       final ScheduleController controller = await boot(
         notifier: notifier,
         restored: const ClassReminderSettings(enabled: false),
@@ -416,7 +429,9 @@ void main() {
     });
 
     test('权限被拒时提醒照样排，只是界面要提示去放行', () async {
-      final FakeReminderNotifier notifier = FakeReminderNotifier(granted: false);
+      final FakeReminderNotifier notifier = FakeReminderNotifier(
+        granted: false,
+      );
       final ScheduleController controller = await boot(notifier: notifier);
 
       expect(controller.reminderPermissionGranted, isFalse);
@@ -481,6 +496,65 @@ void main() {
       );
       controller.dispose();
     });
+
+    test('冷启动就把提醒窗口覆盖到的周自动往下拉回来', () async {
+      final FakeReminderNotifier notifier = FakeReminderNotifier();
+      final ScheduleController controller = await boot(notifier: notifier);
+
+      // 窗口末端（now + 14 天）可能落在还没预取的周上，等它拉完。
+      final DateTime now = DateTime.now();
+      final int first = controller.term.weekOf(now);
+      final int last = controller.term.weekOf(now.add(reminderHorizon));
+      await waitUntil(
+        () =>
+            first > last ||
+            controller.serverWeekOf(
+                  last.clamp(1, controller.term.totalWeeks),
+                ) !=
+                null,
+      );
+
+      for (int week = first; week <= last; week++) {
+        if (week < 1 || week > controller.term.totalWeeks) {
+          continue;
+        }
+        expect(controller.serverWeekOf(week), isNotNull, reason: '第 $week 周');
+      }
+      controller.dispose();
+    });
+
+    test('回到前台时接着往下延伸排期（提醒触发后窗口往前挪）', () async {
+      final FakeReminderNotifier notifier = FakeReminderNotifier();
+      final ScheduleController controller = await boot(notifier: notifier);
+      final int syncedAfterBoot = notifier.syncs;
+
+      await controller.onAppResumed();
+
+      expect(notifier.syncs, greaterThanOrEqualTo(syncedAfterBoot));
+      final int last = controller.term.weekOf(
+        DateTime.now().add(reminderHorizon),
+      );
+      if (last <= controller.term.totalWeeks) {
+        expect(controller.serverWeekOf(last), isNotNull);
+      }
+      controller.dispose();
+    });
+
+    test('拉不到课表（会话失效）时往下查询安静失败，不炸也不重试循环', () async {
+      const JwStoredAccount account = JwStoredAccount(cookie: 'JSESSIONID=a');
+      final FakeReminderNotifier notifier = FakeReminderNotifier();
+      final ScheduleController controller = await boot(
+        notifier: notifier,
+        transport: jwExpiredTransport,
+        account: account,
+      );
+
+      // 能在超时内跑完（没有死循环重试）就是这条测试要验证的。
+      await controller.onAppResumed();
+
+      expect(controller.reminderSupported, isTrue);
+      controller.dispose();
+    });
   });
 
   group('设置页的上课提醒', () {
@@ -498,9 +572,13 @@ void main() {
         jwApp(reminderNotifier: notifier, reminderStore: store),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(FLucideIcons.ellipsis));
+      // 三个点菜单已移除，设置入口在「我的信息」页。
+      await tester.tap(find.text('我的信息'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      // 设置页改成了二级页面结构：提醒类在「上课提醒」子页里。
+      await tester.tap(find.text('上课提醒'));
       await tester.pumpAndSettle();
     }
 

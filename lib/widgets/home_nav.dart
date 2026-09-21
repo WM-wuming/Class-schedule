@@ -6,14 +6,14 @@ enum HomeTab {
   /// 课表。
   timetable('课表', FLucideIcons.layoutGrid),
 
-  /// 空教室查询。
-  classroom('空教室', FLucideIcons.doorOpen),
-
-  /// 我的信息。
-  profile('我的信息', FLucideIcons.user),
+  /// 教室状态查询。
+  classroom('教室状态', FLucideIcons.doorOpen),
 
   /// 选课。
-  selection('选课', FLucideIcons.bookOpen);
+  selection('选课', FLucideIcons.bookOpen),
+
+  /// 我的信息。
+  profile('我的信息', FLucideIcons.user);
 
   const HomeTab(this.label, this.icon);
 
@@ -24,7 +24,7 @@ enum HomeTab {
   final IconData icon;
 }
 
-/// 底部导航条：课表 / 空教室 / 我的信息 / 选课。
+/// 底部导航条：课表 / 教室状态 / 选课 / 我的信息。
 ///
 /// forui 的 [FBottomNavigationBar] 通过 `index` + `onChange` 受控，
 /// 子项 [FBottomNavigationBarItem] 只负责显示，不接收点击回调。

@@ -30,6 +30,10 @@ abstract interface class KeepAlivePlatform {
 
   /// 打开系统的应用详情页（万能兜底）。
   Future<bool> openAppDetailsSettings();
+
+  /// 用系统浏览器打开 [url]（GitHub 项目页等外部链接）。
+  /// 打不开（没浏览器 / 平台不支持）返回 false。
+  Future<bool> openUrl(String url);
 }
 
 /// 按当前平台建一个保活口。

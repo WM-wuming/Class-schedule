@@ -1,0 +1,55 @@
+# 持续集成：推 main 或提 PR 时跑静态检查 + 单元测试，几十秒内给反馈。
+#
+# 三端的「真实构建」验证不放在这里（Android 冷编译要十分钟、macOS runner 还按 10 倍
+# 计费），需要验证时手动触发 release.yml 的 dry run：Actions → Release → Run workflow
+# → publish 取消勾选，三端都构建一遍、只上传 artifact 不建 Release。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支连续推送时，取消上一次还没跑完的检查，省 runner 时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.47.5'
+
+jobs:
+  analyze-and-test:
+    name: 静态检查 + 单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 测试里大量断言依赖本机时区（提醒排期、周次换算），跑在 UTC 上会飘
+      TZ: Asia/Shanghai
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          # 缓存 Flutter SDK 与 pub 包，第二次跑能省一两分钟
+          cache: true
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      # flutter analyze 默认 --fatal-infos，任何 info 级 lint 都会红 —— 这是刻意的，
+      # 保持零告警比事后翻日志便宜。本地提交前先跑一次同样的命令。
+      - name: 静态检查
+        run: flutter analyze
+
+      - name: 单元测试 / 组件测试
+        run: flutter test --reporter expanded

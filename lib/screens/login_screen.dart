@@ -40,12 +40,38 @@ class _LoginScreenState extends State<LoginScreen> {
   /// 「记住密码」勾选状态：本机存过密码就默认勾上。
   bool _remember = false;
 
+  ScheduleController? _controller;
+  bool _listenerAttached = false;
+
+  /// 自动登录相关：
+  /// * [_captchaManuallyEdited] —— 用户自己动过验证码框后，自动填入/自动提交全部让路；
+  /// * [_autoTried] —— 自动登录整个流程只主动跑一次，之后交给用户手动；
+  /// * [_autoFilling] —— 区分「程序填的」和「用户敲的」，填入不算手动编辑。
+  bool _captchaManuallyEdited = false;
+  bool _autoTried = false;
+  bool _autoSubmitting = false;
+  bool _autoFilling = false;
+
+  /// 本页自己的提交提示（区别于 controller.loginError 的服务端错误）：
+  /// 目前用在「验证码没填、识别也拿不到结果」时，提示用户手动输入。
+  String? _submitHint;
+
   @override
   void initState() {
     super.initState();
     _account.text = widget.initialAccount;
     _password.text = widget.initialPassword;
     _remember = widget.initialPassword.isNotEmpty;
+    // 用户亲手敲过验证码 → 这一轮就不做自动填入/自动提交了（他显然想自己来）。
+    _captcha.addListener(() {
+      if (_autoFilling) {
+        return;
+      }
+      _captchaManuallyEdited = true;
+    });
+    // 账号 / 敲完密码的那一刻也要检查一次自动提交（识别结果可能早就绪了）。
+    _account.addListener(_handleFieldChanged);
+    _password.addListener(_handleFieldChanged);
     // 进页面就先要一张验证码。放到帧后是因为 [ScheduleController.startLogin]
     // 会立刻 notifyListeners，不能在 build 期间改状态。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -56,11 +82,100 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_listenerAttached) {
+      return;
+    }
+    _listenerAttached = true;
+    final ScheduleController controller = ScheduleScope.of(context);
+    _controller = controller;
+    // 验证码识别结果一到位（控制器 notify），就把识别文本填进输入框；
+    // 账号密码也齐的话直接自动提交 —— 用户一个字都不用敲。
+    controller.addListener(_handleControllerChanged);
+  }
+
+  @override
   void dispose() {
+    _controller?.removeListener(_handleControllerChanged);
     _account.dispose();
     _password.dispose();
     _captcha.dispose();
     super.dispose();
+  }
+
+  /// 控制器有任何变化时（识别完成、验证码换图、登录结束）检查一次自动流程。
+  ///
+  /// 真正的动作挪到帧后执行：通知可能在 build 过程中发出，
+  /// 这里如果直接 setState 会触发「setState during build」断言。
+  void _handleControllerChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncAutoLogin();
+      }
+    });
+  }
+
+  /// 账号 / 密码输入框文字变化：顺手刷新按钮可用态，并检查一次自动提交。
+  void _handleFieldChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {});
+        _syncAutoLogin();
+      }
+    });
+  }
+
+  void _syncAutoLogin() {
+    final ScheduleController? controller = _controller;
+    if (controller == null || !mounted) {
+      return;
+    }
+
+    // 1) 自动填入：识别结果到了就填，填过就一直跟到最新（除非用户自己改过）。
+    final String? guess = controller.captchaGuess;
+    if (guess != null &&
+        guess.isNotEmpty &&
+        !_captchaManuallyEdited &&
+        _captcha.text != guess) {
+      _autoFilling = true;
+      _captcha.text = guess;
+      _autoFilling = false;
+      setState(() {});
+    }
+
+    // 2) 自动提交：账号密码都齐、识别结果也有、还没自动试过 → 直接登录。
+    //    账号密码是「记住密码」回填的或用户已经敲完的场景。
+    if (_autoTried ||
+        _autoSubmitting ||
+        _captchaManuallyEdited ||
+        controller.loginLoading ||
+        _account.text.trim().isEmpty ||
+        _password.text.isEmpty ||
+        guess == null ||
+        guess.isEmpty) {
+      return;
+    }
+    _autoTried = true;
+    _autoSubmitting = true;
+    setState(() {});
+    _runAutoLogin(controller);
+  }
+
+  Future<void> _runAutoLogin(ScheduleController controller) async {
+    final bool ok = await controller.autoLoginWithCaptcha(
+      account: _account.text.trim(),
+      password: _password.text,
+      rememberPassword: _remember,
+    );
+    if (!mounted) {
+      return;
+    }
+    _autoSubmitting = false;
+    setState(() {});
+    if (ok) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override
@@ -68,10 +183,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final ScheduleController controller = ScheduleScope.of(context);
     final bool loading = controller.loginLoading;
     final bool hasCaptcha = controller.captchaImage != null;
+    // 验证码不拦按钮：空着也允许点登录（提交时空验证码会用识别结果兜底，
+    // 兜不住就由教务系统报「验证码错误」，图会自动换）。
     final bool filled =
-        _account.text.trim().isNotEmpty &&
-        _password.text.isNotEmpty &&
-        _captcha.text.trim().isNotEmpty;
+        _account.text.trim().isNotEmpty && _password.text.isNotEmpty;
     final String? error = controller.loginError;
 
     return FScaffold(
@@ -119,16 +234,18 @@ class _LoginScreenState extends State<LoginScreen> {
             obscureText: !_showPassword,
             textInputAction: TextInputAction.next,
             suffixBuilder:
-                (BuildContext context, FTextFieldStyle style, Set<FTextFieldVariant> variants) =>
-                    FButton.icon(
-                      variant: .ghost,
-                      onPress: () =>
-                          setState(() => _showPassword = !_showPassword),
-                      child: Icon(
-                        _showPassword ? FLucideIcons.eyeOff : FLucideIcons.eye,
-                        size: 16,
-                      ),
-                    ),
+                (
+                  BuildContext context,
+                  FTextFieldStyle style,
+                  Set<FTextFieldVariant> variants,
+                ) => FButton.icon(
+                  variant: .ghost,
+                  onPress: () => setState(() => _showPassword = !_showPassword),
+                  child: Icon(
+                    _showPassword ? FLucideIcons.eyeOff : FLucideIcons.eye,
+                    size: 16,
+                  ),
+                ),
           ),
           const SizedBox(height: 4),
           // 「记住密码」：勾上后本次登录成功就把密码存进本机（登录页免输一遍）；
@@ -145,10 +262,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: FTextField(
                   control: FTextFieldControl.managed(
                     controller: _captcha,
-                    onChange: (_) => setState(() {}),
+                    onChange: (_) => setState(() {
+                      // 用户开始动手填了，之前「识别失败」的提示就该消失。
+                      _submitHint = null;
+                    }),
                   ),
                   label: const Text('验证码'),
-                  hint: '右侧图片里的字符',
+                  hint: '已自动识别，也可手动修改',
                   textInputAction: TextInputAction.done,
                 ),
               ),
@@ -158,11 +278,25 @@ class _LoginScreenState extends State<LoginScreen> {
                 loading: loading,
                 onRefresh: () {
                   _captcha.clear();
+                  _submitHint = null;
                   controller.startLogin();
                 },
               ),
             ],
           ),
+          // 识别失败 / 没等到识别结果的提示：别让用户对着空框干点登录没反应。
+          if (_submitHint != null ||
+              (controller.captchaOcrFailed && _captcha.text.trim().isEmpty))
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _submitHint ?? '验证码自动识别不可用，请手动输入',
+                style: const TextStyle(
+                  color: GridColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           if (error != null) ...<Widget>[
             const SizedBox(height: 16),
             _ErrorBanner(
@@ -194,10 +328,34 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit(ScheduleController controller) async {
+    // 用户手动点登录了，之后不再自动提交（识别结果照常填入输入框）。
+    _autoTried = true;
+    String captcha = _captcha.text.trim();
+    if (captcha.isEmpty) {
+      // 验证码框还空着：等一下可能在跑的识别（通常一两秒内出结果），
+      // 等到了直接用 —— 用户什么都不用填。
+      captcha = (await controller.awaitCaptchaGuess()) ?? '';
+    }
+    if (captcha.isEmpty) {
+      // 识别彻底拿不到结果：验证码是一次性的，不浪费一次服务端校验去交空表单
+      // （交了也只会换回「验证码不能为空」，图还得重取）。
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _submitHint = '验证码自动识别没成功，请照图手动输入后再点登录';
+      });
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _submitHint = null;
+      });
+    }
     final bool ok = await controller.submitLogin(
       account: _account.text.trim(),
       password: _password.text,
-      captcha: _captcha.text.trim(),
+      captcha: captcha,
       rememberPassword: _remember,
     );
     if (!mounted) {
@@ -307,7 +465,7 @@ class _RememberPasswordTile extends StatelessWidget {
             const SizedBox(width: 8),
             const Expanded(
               child: Text(
-                '仅保存在本机，登录仍需输入验证码',
+                '仅保存在本机，验证码自动识别提交',
                 style: TextStyle(
                   color: GridColors.textSecondary,
                   fontSize: 11.5,
@@ -343,8 +501,9 @@ class _HintCard extends StatelessWidget {
             child: Text(
               '会话过期后，在这里用学号密码重新登录即可。\n'
               '登录成功后会话与学号保存在本机，下次打开不用再登；'
-              '勾选「记住密码」可以把密码也存在本机（登录时免输，仍要输验证码），'
-              '不勾就完全不落盘。随时可在「我的信息」页退出登录。',
+              '勾选「记住密码」可以把密码也存在本机（下次登录免输）。'
+              '验证码由本机离线识别并自动提交，偶尔认错会自动换一张重试；'
+              '也可以点图手动换一张自己输入。随时可在「我的信息」页退出登录。',
               style: TextStyle(color: Color(0xFF3A4A66), fontSize: 12.5),
             ),
           ),
