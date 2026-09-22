@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「下一节课」小组件的窄竖条尺寸（1 格宽 × 2 格高）：宽度只有约 65dp，
+     文案全部允许换行/省略 —— 状态一行、课程名最多两行、时间最多两行
+     （10:15-11:50 会折成两行）、地点最多两行，整体垂直居中。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_tall_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/next_class_widget_bg"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
+
+    <!-- 有课时的正文：垂直居中的一列 -->
+    <LinearLayout
+        android:id="@+id/widget_tall_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:visibility="visible">
+
+        <TextView
+            android:id="@+id/widget_tall_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="下一节"
+            android:textColor="#93A4BC"
+            android:textSize="10sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_tall_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="高数"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_tall_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="10:15-11:50"
+            android:textColor="#7FB3FF"
+            android:textSize="11sp"
+            android:maxLines="2" />
+
+        <TextView
+            android:id="@+id/widget_tall_place"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="教学楼A-101"
+            android:textColor="#C6D2E2"
+            android:textSize="10sp"
+            android:maxLines="2"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <!-- 没课时的空状态 -->
+    <TextView
+        android:id="@+id/widget_tall_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:text="没有课了"
+        android:textColor="#DCE4F0"
+        android:textSize="12sp"
+        android:visibility="gone" />
+</LinearLayout>

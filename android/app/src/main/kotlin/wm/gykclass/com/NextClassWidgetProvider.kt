@@ -13,9 +13,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 「下一节课」桌面小组件 —— 两种尺寸共用一套数据与刷新逻辑：
+ * 「下一节课」桌面小组件 —— 三种尺寸共用一套数据与刷新逻辑：
  * - [NextClassWidgetProvider]：大尺寸（约 4×1 格），四行卡片（状态 / 课程 / 时间 / 地点）；
- * - [NextClassWidgetSmallProvider]：紧凑尺寸（2 格宽 × 1 格高），两行（课程 / 时间·地点）。
+ * - [NextClassWidgetSmallProvider]：紧凑横条（2 格宽 × 1 格高），两行（课程 / 时间·地点）；
+ * - [NextClassWidgetTallProvider]：窄竖条（1 格宽 × 2 格高），一列（状态 / 课程 / 时间 / 地点）。
  *
  * 数据来源是 Flutter 侧算好的 JSON（见 lib/models/next_class.dart，经 MainActivity
  * 写进 `next_class_widget` 这个 SharedPreferences），渲染只做三件事：
@@ -23,8 +24,8 @@ import org.json.JSONObject
  * 2. 一条都没有就显示空状态；
  * 3. 在这条课的边界（开课/下课时刻）定个闹钟精准刷新，兜底另有系统 30 分钟一拍的轮询。
  *
- * 两种尺寸显示的是**同一份数据、同一条课**，所以节次闹钟只挂一份
- * （PendingIntent 相同，两边重复排也是幂等的）。
+ * 三种尺寸显示的是**同一份数据、同一条课**，所以节次闹钟只挂一份
+ * （PendingIntent 相同，多处重复排也是幂等的）。
  */
 internal object NextClassWidgets {
 
@@ -34,10 +35,23 @@ internal object NextClassWidgets {
     private const val KEY_PAYLOAD = "payload"
     private const val ALARM_REQUEST_CODE = 41
 
-    /** 刷新**所有**小组件实例（两种尺寸都算）；App 推新数据与节次闹钟都走这里。 */
+    /** 一种尺寸的描述：自己的 Provider 类与布局。 */
+    private enum class Variant(
+        val provider: Class<out AppWidgetProvider>,
+        val layoutId: Int,
+    ) {
+        BIG(NextClassWidgetProvider::class.java, R.layout.next_class_widget),
+        SMALL(NextClassWidgetSmallProvider::class.java, R.layout.next_class_widget_small),
+        TALL(NextClassWidgetTallProvider::class.java, R.layout.next_class_widget_tall),
+    }
+
+    private val ALL_VARIANTS = listOf(Variant.BIG, Variant.SMALL, Variant.TALL)
+
+    /** 刷新**所有**小组件实例（三种尺寸都算）；App 推新数据与节次闹钟都走这里。 */
     fun updateAll(context: Context) {
-        render(context, big = true)
-        render(context, big = false)
+        for (variant in ALL_VARIANTS) {
+            render(context, variant)
+        }
     }
 
     /** 读取 Flutter 推来的数据；任何一步失败都当「没课」处理。 */
@@ -52,15 +66,10 @@ internal object NextClassWidgets {
     }
 
     /** 渲染一种尺寸的全部实例；任何一步失败都静默，维持旧显示即可。 */
-    private fun render(context: Context, big: Boolean) {
+    private fun render(context: Context, variant: Variant) {
         try {
             val manager = AppWidgetManager.getInstance(context) ?: return
-            val provider = if (big) {
-                NextClassWidgetProvider::class.java
-            } else {
-                NextClassWidgetSmallProvider::class.java
-            }
-            val ids = manager.getAppWidgetIds(ComponentName(context, provider))
+            val ids = manager.getAppWidgetIds(ComponentName(context, variant.provider))
             if (ids.isEmpty()) return
 
             val now = System.currentTimeMillis()
@@ -69,19 +78,9 @@ internal object NextClassWidgets {
                 it.optLong("end") > now
             }
 
-            val views = RemoteViews(
-                context.packageName,
-                if (big) R.layout.next_class_widget else R.layout.next_class_widget_small
-            )
+            val views = RemoteViews(context.packageName, variant.layoutId)
             if (current == null) {
-                if (big) {
-                    views.setViewVisibility(R.id.widget_content, View.GONE)
-                    views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-                    views.setTextViewText(R.id.widget_empty, "没有课了\n可以放心玩了！")
-                } else {
-                    views.setViewVisibility(R.id.widget_small_content, View.GONE)
-                    views.setViewVisibility(R.id.widget_small_empty, View.VISIBLE)
-                }
+                showEmpty(context, views, variant)
                 cancelBoundaryAlarm(context)
             } else {
                 val start = current.optLong("start")
@@ -94,45 +93,75 @@ internal object NextClassWidgets {
                 val place = current.optString("location", "").trim()
                 val teacher = current.optString("teacher", "").trim()
 
-                if (big) {
-                    views.setViewVisibility(R.id.widget_empty, View.GONE)
-                    views.setViewVisibility(R.id.widget_content, View.VISIBLE)
-                    views.setTextViewText(
-                        R.id.widget_header,
-                        when {
+                when (variant) {
+                    Variant.BIG -> {
+                        views.setViewVisibility(R.id.widget_empty, View.GONE)
+                        views.setViewVisibility(R.id.widget_content, View.VISIBLE)
+                        views.setTextViewText(
+                            R.id.widget_header,
+                            when {
+                                inClass -> "正在上课"
+                                day == "今天" -> "下一节课"
+                                else -> "下一节"
+                            }
+                        )
+                        views.setTextViewText(R.id.widget_day, day)
+                        views.setTextViewText(R.id.widget_name, name)
+                        views.setTextViewText(
+                            R.id.widget_time,
+                            "$time · $period"
+                        )
+                        views.setViewVisibility(
+                            R.id.widget_place,
+                            if (place.isEmpty() && teacher.isEmpty()) View.GONE else View.VISIBLE
+                        )
+                        views.setTextViewText(
+                            R.id.widget_place,
+                            listOf(place, teacher).filter { it.isNotEmpty() }.joinToString(" · ")
+                        )
+                    }
+
+                    Variant.SMALL -> {
+                        // 紧凑横条没有第几节：状态与日期拼进第二行（上课中 / 明天 …），超宽会省略。
+                        val where = listOf(place, teacher)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" · ")
+                        val info = when {
+                            inClass -> listOf("上课中", time, where)
+                            day == "今天" -> listOf(time, where)
+                            else -> listOf(day, time, where)
+                        }.filter { it.isNotEmpty() }.joinToString(" · ")
+                        views.setViewVisibility(R.id.widget_small_empty, View.GONE)
+                        views.setViewVisibility(R.id.widget_small_content, View.VISIBLE)
+                        views.setTextViewText(R.id.widget_small_name, name)
+                        views.setTextViewText(R.id.widget_small_info, info)
+                    }
+
+                    Variant.TALL -> {
+                        // 窄竖条：状态一行（非今天直接显示日期），其余全部允许折行/省略。
+                        val status = when {
                             inClass -> "正在上课"
-                            day == "今天" -> "下一节课"
-                            else -> "下一节"
+                            day == "今天" -> "下一节"
+                            else -> day
                         }
-                    )
-                    views.setTextViewText(R.id.widget_day, day)
-                    views.setTextViewText(R.id.widget_name, name)
-                    views.setTextViewText(
-                        R.id.widget_time,
-                        "$time · $period"
-                    )
-                    views.setViewVisibility(
-                        R.id.widget_place,
-                        if (place.isEmpty() && teacher.isEmpty()) View.GONE else View.VISIBLE
-                    )
-                    views.setTextViewText(
-                        R.id.widget_place,
-                        listOf(place, teacher).filter { it.isNotEmpty() }.joinToString(" · ")
-                    )
-                } else {
-                    // 紧凑版没有第几节：状态与日期拼进第二行（上课中 / 明天 …），超宽会省略。
-                    val where = listOf(place, teacher)
-                        .filter { it.isNotEmpty() }
-                        .joinToString(" · ")
-                    val info = when {
-                        inClass -> listOf("上课中", time, where)
-                        day == "今天" -> listOf(time, where)
-                        else -> listOf(day, time, where)
-                    }.filter { it.isNotEmpty() }.joinToString(" · ")
-                    views.setViewVisibility(R.id.widget_small_empty, View.GONE)
-                    views.setViewVisibility(R.id.widget_small_content, View.VISIBLE)
-                    views.setTextViewText(R.id.widget_small_name, name)
-                    views.setTextViewText(R.id.widget_small_info, info)
+                        val where = listOf(place, teacher)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" · ")
+                        views.setViewVisibility(R.id.widget_tall_empty, View.GONE)
+                        views.setViewVisibility(R.id.widget_tall_content, View.VISIBLE)
+                        views.setTextViewText(R.id.widget_tall_status, status)
+                        views.setTextViewText(R.id.widget_tall_name, name)
+                        views.setViewVisibility(
+                            R.id.widget_tall_time,
+                            if (time.isEmpty()) View.GONE else View.VISIBLE
+                        )
+                        views.setTextViewText(R.id.widget_tall_time, time)
+                        views.setViewVisibility(
+                            R.id.widget_tall_place,
+                            if (where.isEmpty()) View.GONE else View.VISIBLE
+                        )
+                        views.setTextViewText(R.id.widget_tall_place, where)
+                    }
                 }
 
                 // 没在上课 → 开课那一刻刷新（变「正在上课」）；在上课 → 下课那一刻刷新（换下一节）。
@@ -143,7 +172,11 @@ internal object NextClassWidgets {
             try {
                 context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
                     views.setOnClickPendingIntent(
-                        if (big) R.id.widget_root else R.id.widget_small_root,
+                        when (variant) {
+                            Variant.BIG -> R.id.widget_root
+                            Variant.SMALL -> R.id.widget_small_root
+                            Variant.TALL -> R.id.widget_tall_root
+                        },
                         PendingIntent.getActivity(
                             context,
                             0,
@@ -158,6 +191,27 @@ internal object NextClassWidgets {
             manager.updateAppWidget(ids, views)
         } catch (ignored: Exception) {
             // 小组件刷新失败不能崩主进程，维持旧显示即可。
+        }
+    }
+
+    /** 各尺寸的空状态文案与可见性。 */
+    private fun showEmpty(context: Context, views: RemoteViews, variant: Variant) {
+        when (variant) {
+            Variant.BIG -> {
+                views.setViewVisibility(R.id.widget_content, View.GONE)
+                views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
+                views.setTextViewText(R.id.widget_empty, "没有课了\n可以放心玩了！")
+            }
+
+            Variant.SMALL -> {
+                views.setViewVisibility(R.id.widget_small_content, View.GONE)
+                views.setViewVisibility(R.id.widget_small_empty, View.VISIBLE)
+            }
+
+            Variant.TALL -> {
+                views.setViewVisibility(R.id.widget_tall_content, View.GONE)
+                views.setViewVisibility(R.id.widget_tall_empty, View.VISIBLE)
+            }
         }
     }
 
@@ -210,13 +264,28 @@ class NextClassWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        /** App 侧（MainActivity）推新数据后调这里；一次把两种尺寸都刷掉。 */
+        /** App 侧（MainActivity）推新数据后调这里；一次把三种尺寸都刷掉。 */
         fun updateAll(context: Context) = NextClassWidgets.updateAll(context)
     }
 }
 
 /** 「下一节课」小组件的紧凑尺寸（2 格宽 × 1 格高，两行）。 */
 class NextClassWidgetSmallProvider : AppWidgetProvider() {
+
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        NextClassWidgets.updateAll(context)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == NextClassWidgets.ACTION_REFRESH) {
+            NextClassWidgets.updateAll(context)
+        }
+    }
+}
+
+/** 「下一节课」小组件的窄竖条尺寸（1 格宽 × 2 格高，一列）。 */
+class NextClassWidgetTallProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         NextClassWidgets.updateAll(context)

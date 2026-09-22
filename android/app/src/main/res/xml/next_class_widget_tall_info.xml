@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 窄竖条尺寸（1 格宽 × 2 格高）：内容见布局 next_class_widget_tall。
+     数据与刷新节奏和大尺寸那份完全一致（见 next_class_widget_info.xml）。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="40dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/next_class_widget_tall"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />
