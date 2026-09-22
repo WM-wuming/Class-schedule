@@ -10,8 +10,8 @@
     android:background="@drawable/next_class_widget_bg"
     android:paddingStart="8dp"
     android:paddingEnd="8dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
     <!-- 有课时的正文：垂直居中的一列 -->
     <LinearLayout
@@ -36,7 +36,7 @@
             android:id="@+id/widget_tall_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="2dp"
             android:text="高数"
             android:textColor="#FFFFFF"
             android:textSize="13sp"
@@ -48,7 +48,7 @@
             android:id="@+id/widget_tall_time"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="2dp"
             android:text="10:15-11:50"
             android:textColor="#7FB3FF"
             android:textSize="11sp"

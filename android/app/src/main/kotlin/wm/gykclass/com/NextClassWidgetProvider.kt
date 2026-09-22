@@ -13,8 +13,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 「下一节课」桌面小组件 —— 三种尺寸共用一套数据与刷新逻辑：
- * - [NextClassWidgetProvider]：大尺寸（约 4×1 格），四行卡片（状态 / 课程 / 时间 / 地点）；
+ * 「下一节课」桌面小组件 —— 四种尺寸共用一套数据与刷新逻辑：
+ * - [NextClassWidgetProvider]：大尺寸（约 4×2 格），四行卡片（状态 / 课程 / 时间 / 地点）；
+ * - [NextClassWidgetSquareProvider]：2×2 格 —— **信息展示的主要参考版式**，四行完整信息；
  * - [NextClassWidgetSmallProvider]：紧凑横条（2 格宽 × 1 格高），两行（课程 / 时间·地点）；
  * - [NextClassWidgetTallProvider]：窄竖条（1 格宽 × 2 格高），一列（状态 / 课程 / 时间 / 地点）。
  *
@@ -24,8 +25,8 @@ import org.json.JSONObject
  * 2. 一条都没有就显示空状态；
  * 3. 在这条课的边界（开课/下课时刻）定个闹钟精准刷新，兜底另有系统 30 分钟一拍的轮询。
  *
- * 三种尺寸显示的是**同一份数据、同一条课**，所以节次闹钟只挂一份
- * （PendingIntent 相同，多处重复排也是幂等的）。
+ * 各尺寸显示的是**同一份数据、同一条课**（2×2 的信息集是完整参考，其余尺寸按空间取子集），
+ * 所以节次闹钟只挂一份（PendingIntent 相同，多处重复排也是幂等的）。
  */
 internal object NextClassWidgets {
 
@@ -35,19 +36,26 @@ internal object NextClassWidgets {
     private const val KEY_PAYLOAD = "payload"
     private const val ALARM_REQUEST_CODE = 41
 
-    /** 一种尺寸的描述：自己的 Provider 类与布局。 */
+    /** 内容版式：大卡与 2×2 共用（连视图 id 都同套），横条与竖条各自精简。 */
+    private enum class Style { CARD, COMPACT, COLUMN }
+
+    /** 一种尺寸的描述：自己的 Provider 类、布局与内容版式。 */
     private enum class Variant(
         val provider: Class<out AppWidgetProvider>,
         val layoutId: Int,
+        val style: Style,
     ) {
-        BIG(NextClassWidgetProvider::class.java, R.layout.next_class_widget),
-        SMALL(NextClassWidgetSmallProvider::class.java, R.layout.next_class_widget_small),
-        TALL(NextClassWidgetTallProvider::class.java, R.layout.next_class_widget_tall),
+        BIG(NextClassWidgetProvider::class.java, R.layout.next_class_widget, Style.CARD),
+        SQUARE(NextClassWidgetSquareProvider::class.java, R.layout.next_class_widget_square, Style.CARD),
+        SMALL(NextClassWidgetSmallProvider::class.java, R.layout.next_class_widget_small, Style.COMPACT),
+        TALL(NextClassWidgetTallProvider::class.java, R.layout.next_class_widget_tall, Style.COLUMN),
     }
 
-    private val ALL_VARIANTS = listOf(Variant.BIG, Variant.SMALL, Variant.TALL)
+    private val ALL_VARIANTS = listOf(
+        Variant.BIG, Variant.SQUARE, Variant.SMALL, Variant.TALL
+    )
 
-    /** 刷新**所有**小组件实例（三种尺寸都算）；App 推新数据与节次闹钟都走这里。 */
+    /** 刷新**所有**小组件实例（四种尺寸都算）；App 推新数据与节次闹钟都走这里。 */
     fun updateAll(context: Context) {
         for (variant in ALL_VARIANTS) {
             render(context, variant)
@@ -80,7 +88,7 @@ internal object NextClassWidgets {
 
             val views = RemoteViews(context.packageName, variant.layoutId)
             if (current == null) {
-                showEmpty(context, views, variant)
+                showEmpty(views, variant)
                 cancelBoundaryAlarm(context)
             } else {
                 val start = current.optLong("start")
@@ -93,8 +101,9 @@ internal object NextClassWidgets {
                 val place = current.optString("location", "").trim()
                 val teacher = current.optString("teacher", "").trim()
 
-                when (variant) {
-                    Variant.BIG -> {
+                when (variant.style) {
+                    Style.CARD -> {
+                        // 大卡与 2×2 的完整信息版式：状态+日期 / 课程 / 时间·节次 / 地点·老师。
                         views.setViewVisibility(R.id.widget_empty, View.GONE)
                         views.setViewVisibility(R.id.widget_content, View.VISIBLE)
                         views.setTextViewText(
@@ -121,7 +130,7 @@ internal object NextClassWidgets {
                         )
                     }
 
-                    Variant.SMALL -> {
+                    Style.COMPACT -> {
                         // 紧凑横条没有第几节：状态与日期拼进第二行（上课中 / 明天 …），超宽会省略。
                         val where = listOf(place, teacher)
                             .filter { it.isNotEmpty() }
@@ -137,7 +146,7 @@ internal object NextClassWidgets {
                         views.setTextViewText(R.id.widget_small_info, info)
                     }
 
-                    Variant.TALL -> {
+                    Style.COLUMN -> {
                         // 窄竖条：状态一行（非今天直接显示日期），其余全部允许折行/省略。
                         val status = when {
                             inClass -> "正在上课"
@@ -172,10 +181,10 @@ internal object NextClassWidgets {
             try {
                 context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
                     views.setOnClickPendingIntent(
-                        when (variant) {
-                            Variant.BIG -> R.id.widget_root
-                            Variant.SMALL -> R.id.widget_small_root
-                            Variant.TALL -> R.id.widget_tall_root
+                        when (variant.style) {
+                            Style.CARD -> R.id.widget_root
+                            Style.COMPACT -> R.id.widget_small_root
+                            Style.COLUMN -> R.id.widget_tall_root
                         },
                         PendingIntent.getActivity(
                             context,
@@ -194,21 +203,21 @@ internal object NextClassWidgets {
         }
     }
 
-    /** 各尺寸的空状态文案与可见性。 */
-    private fun showEmpty(context: Context, views: RemoteViews, variant: Variant) {
-        when (variant) {
-            Variant.BIG -> {
+    /** 各版式的空状态文案与可见性。 */
+    private fun showEmpty(views: RemoteViews, variant: Variant) {
+        when (variant.style) {
+            Style.CARD -> {
                 views.setViewVisibility(R.id.widget_content, View.GONE)
                 views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
                 views.setTextViewText(R.id.widget_empty, "没有课了\n可以放心玩了！")
             }
 
-            Variant.SMALL -> {
+            Style.COMPACT -> {
                 views.setViewVisibility(R.id.widget_small_content, View.GONE)
                 views.setViewVisibility(R.id.widget_small_empty, View.VISIBLE)
             }
 
-            Variant.TALL -> {
+            Style.COLUMN -> {
                 views.setViewVisibility(R.id.widget_tall_content, View.GONE)
                 views.setViewVisibility(R.id.widget_tall_empty, View.VISIBLE)
             }
@@ -249,7 +258,7 @@ internal object NextClassWidgets {
     }
 }
 
-/** 「下一节课」小组件的大尺寸（约 4×1 格，四行卡片）。 */
+/** 「下一节课」小组件的大尺寸（约 4×2 格，四行卡片）。 */
 class NextClassWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -264,8 +273,23 @@ class NextClassWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        /** App 侧（MainActivity）推新数据后调这里；一次把三种尺寸都刷掉。 */
+        /** App 侧（MainActivity）推新数据后调这里；一次把四种尺寸都刷掉。 */
         fun updateAll(context: Context) = NextClassWidgets.updateAll(context)
+    }
+}
+
+/** 「下一节课」小组件的 2×2 尺寸 —— 信息展示的主要参考版式（与大卡共用渲染分支）。 */
+class NextClassWidgetSquareProvider : AppWidgetProvider() {
+
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        NextClassWidgets.updateAll(context)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == NextClassWidgets.ACTION_REFRESH) {
+            NextClassWidgets.updateAll(context)
+        }
     }
 }
 

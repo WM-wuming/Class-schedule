@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 尺寸 —— 信息展示的主要参考版式（四行完整信息）。
+     数据与刷新节奏和大尺寸那份完全一致（见 next_class_widget_info.xml）。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/next_class_widget_square"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

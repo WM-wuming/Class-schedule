@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 大尺寸（约 4×1 格）：系统每 30 分钟兜底刷一次（精确的节次边界刷新由 App 内的闹钟负责）。
-     紧凑尺寸见 next_class_widget_small_info.xml。 -->
+<!-- 大尺寸（约 4×2 格）：四行内容约 93dp，默认放两行高才放得下。
+     系统每 30 分钟兜底刷一次（精确的节次边界刷新由 App 内的闹钟负责）。
+     紧凑尺寸见 next_class_widget_small_info.xml / next_class_widget_tall_info.xml /
+     next_class_widget_square_info.xml（2×2 为信息展示的主要参考版式）。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
-    android:minHeight="40dp"
+    android:minHeight="110dp"
     android:targetCellWidth="4"
-    android:targetCellHeight="1"
+    android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/next_class_widget"
     android:resizeMode="horizontal|vertical"

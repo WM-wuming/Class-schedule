@@ -61,6 +61,18 @@
                 android:resource="@xml/next_class_widget_info"/>
         </receiver>
 
+        <!-- 2×2 尺寸 —— 信息展示的主要参考版式（与大尺寸共用渲染分支）。 -->
+        <receiver
+            android:exported="false"
+            android:name=".NextClassWidgetSquareProvider">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/next_class_widget_square_info"/>
+        </receiver>
+
         <!-- 同一份数据的紧凑尺寸（2 格宽 × 1 格高）：两行，只显示课程名与时间/地点。
              刷新逻辑与大尺寸共用（见 NextClassWidgets），App 推一次数据三种尺寸同时更新。 -->
         <receiver
