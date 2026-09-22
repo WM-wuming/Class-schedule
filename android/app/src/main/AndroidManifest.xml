@@ -61,6 +61,19 @@
                 android:resource="@xml/next_class_widget_info"/>
         </receiver>
 
+        <!-- 同一份数据的紧凑尺寸（2 格宽 × 1 格高）：两行，只显示课程名与时间/地点。
+             刷新逻辑与大尺寸共用（见 NextClassWidgets），App 推一次数据两种尺寸同时更新。 -->
+        <receiver
+            android:exported="false"
+            android:name=".NextClassWidgetSmallProvider">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/next_class_widget_small_info"/>
+        </receiver>
+
         <!-- flutter_local_notifications 的两个接收器（插件文档要求显式声明，否则
              定时提醒不会响）。exported=false：只接收系统广播，不对外开放。 -->
         <receiver
