@@ -436,8 +436,8 @@ void main() {
     });
   });
 
-  group('登录页的验证码自动刷新', () {
-    testWidgets('识别拿不到结果时空验证码点登录：提示手动输入，不发请求', (WidgetTester tester) async {
+  group('登录页的验证码后台处理', () {
+    testWidgets('验证码识别不出时点登录：亮出验证码兜底，不发请求', (WidgetTester tester) async {
       // 不注入识别器：测试环境下识别口永远返回 null（模拟真机识别失败）。
       final FakeLoginTransport login = FakeLoginTransport(
         loginHtml: fixtureLoginFailedHtml,
@@ -452,7 +452,9 @@ void main() {
       await tester.tap(find.text('登录教务系统'));
       await tester.pumpAndSettle();
 
-      // 只填账号密码，验证码留空 —— 按钮不能因此被禁用。
+      // 验证码整个是隐藏的：页面上只有账号、密码两行输入。
+      expect(find.text('验证码'), findsNothing);
+
       final Finder fields = find.byType(EditableText);
       await tester.enterText(fields.at(0), 'student');
       await tester.enterText(fields.at(1), 'ab>');
@@ -462,11 +464,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(login.loginCalls, 0, reason: '识别拿不到结果就不交空表单（验证码是一次性的）');
-      expect(find.textContaining('请照图手动输入'), findsOneWidget);
+      // 兜底：验证码区自己出现了，用户照图手输。
+      expect(find.text('验证码'), findsOneWidget);
+      expect(find.textContaining('请手动输入'), findsOneWidget);
     });
 
-    testWidgets('空验证码点登录会等识别结果，等到了就提交', (WidgetTester tester) async {
-      // gate 不放行 = 识别还在跑：点登录时页面应该等它出结果。
+    testWidgets('点登录后后台等识别结果并提交，验证码错会自动换图重试', (WidgetTester tester) async {
+      // gate 不放行 = 识别还在跑：点登录时后台应该等它出结果。
       final Completer<void> gate = Completer<void>();
       final FakeCaptchaRecognizer recognizer = FakeCaptchaRecognizer(<String?>[
         'AB12',
@@ -498,17 +502,27 @@ void main() {
       gate.complete();
       await tester.pumpAndSettle();
 
-      expect(login.loginCalls, 1, reason: '等到了识别结果并拿去提交');
+      // 假传输层永远回「验证码错误」：闭环自动换图重试，3 次耗尽后停下，
+      // 并把验证码亮出来兜底。
+      expect(login.loginCalls, 3, reason: '验证码错自动换图重试，最多 3 次');
       expect(find.text('验证码错误!!'), findsOneWidget, reason: '假传输层按验证码错误裁决');
-      expect(find.textContaining('请照图手动输入'), findsNothing);
+      expect(find.text('验证码'), findsOneWidget, reason: '重试耗尽后亮出验证码兜底');
     });
 
-    testWidgets('提交失败后自动换一张，并说明验证码已更换', (WidgetTester tester) async {
+    testWidgets('验证码读错时自动换图重试；耗尽后亮出兜底并自动填入识别结果', (WidgetTester tester) async {
+      // 识别器每张都读成错的「zzzz」：服务端三次都回验证码错误。
+      final FakeCaptchaRecognizer recognizer = FakeCaptchaRecognizer(<String?>[
+        'zzzz',
+      ]);
       final FakeLoginTransport login = FakeLoginTransport(
         loginHtml: fixtureLoginFailedHtml,
       );
       await tester.pumpWidget(
-        jwApp(transport: jwExpiredTransport, loginTransport: login.call),
+        jwApp(
+          transport: jwExpiredTransport,
+          loginTransport: login.call,
+          captchaRecognizer: recognizer,
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -522,30 +536,30 @@ void main() {
       final Finder fields = find.byType(EditableText);
       await tester.enterText(fields.at(0), 'student');
       await tester.enterText(fields.at(1), 'ab>');
-      await tester.enterText(fields.at(2), 'zzzz');
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
 
-      // 还停在登录页：失败原因 + 「图已经换过」的说明都在
+      // 还停在登录页：失败原因 + 「图已经换过」的说明都在，验证码也亮出来了
       expect(find.text('验证码错误!!'), findsOneWidget);
       expect(find.text('验证码已自动更换，请重新输入'), findsOneWidget);
-      expect(login.loginCalls, 1);
-      expect(login.captchaCalls, 2, reason: '失败后自动再取一张');
+      expect(login.loginCalls, 3, reason: '验证码错自动重试 3 次');
+      expect(login.captchaCalls, 4, reason: '每次失败后自动再取一张（1 + 3）');
 
       final EditableText captchaField = tester.widget<EditableText>(
         find.byType(EditableText).at(2),
       );
       expect(
         captchaField.controller.text,
-        isEmpty,
-        reason: '旧验证码作废了，输入框也要清掉，等用户照新图重输',
+        'zzzz',
+        reason: '兜底亮出后输入框自动填当前图的识别结果，用户在它基础上改',
       );
     });
 
-    testWidgets('取验证码失败时不显示「已自动更换」', (WidgetTester tester) async {
-      // 一开始就取不到图 → 页面给的是取图失败的原因，验证码位是「点此获取」
+    testWidgets('取验证码失败时不显示「已自动更换」，并给出重试入口', (WidgetTester tester) async {
+      // 一开始就取不到图 → 页面给的是取图失败的原因；验证码藏在后台，
+      // 页面上不该有验证码输入框或「点此获取」，但要有个重试按钮。
       final FakeLoginTransport login = FakeLoginTransport(
         captchaError: const JwException('验证码接口挂了'),
       );
@@ -561,7 +575,8 @@ void main() {
 
       expect(find.text('验证码接口挂了'), findsOneWidget);
       expect(find.text('验证码已自动更换，请重新输入'), findsNothing);
-      expect(find.text('点此获取'), findsOneWidget);
+      expect(find.text('点此获取'), findsNothing, reason: '验证码区默认隐藏');
+      expect(find.text('重新获取验证码'), findsOneWidget);
     });
   });
 
@@ -589,7 +604,7 @@ void main() {
       expect(find.text('登录教务系统'), findsOneWidget);
     });
 
-    testWidgets('点登录进入登录页，提交后回到我的信息并显示新账号', (WidgetTester tester) async {
+    testWidgets('点登录后台识别提交，成功后回到我的信息并显示新账号', (WidgetTester tester) async {
       var loggedIn = false;
       final FakeLoginTransport login = FakeLoginTransport();
       await tester.pumpWidget(
@@ -610,6 +625,7 @@ void main() {
                 }
                 return response;
               },
+          captchaRecognizer: FakeCaptchaRecognizer(<String?>['A1B2']),
         ),
       );
       await tester.pumpAndSettle();
@@ -621,17 +637,17 @@ void main() {
       await tester.tap(find.text('登录教务系统'));
       await tester.pumpAndSettle();
 
-      // 登录页：三行输入 + 验证码图片
+      // 登录页：账号、密码两行 —— 验证码整个是隐藏的
       expect(find.text('学号 / 账号'), findsOneWidget);
       expect(find.text('密码'), findsOneWidget);
-      expect(find.text('验证码'), findsOneWidget);
+      expect(find.text('验证码'), findsNothing, reason: '验证码在后台处理，不出现');
       expect(login.captchaCalls, 1);
 
       final Finder fields = find.byType(EditableText);
       await tester.enterText(fields.at(0), 'student');
       await tester.enterText(fields.at(1), 'ab>');
-      await tester.enterText(fields.at(2), 'A1B2');
       await tester.pumpAndSettle();
+      expect(login.loginCalls, 0, reason: '填完信息也不自动提交，等用户点登录');
 
       await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();

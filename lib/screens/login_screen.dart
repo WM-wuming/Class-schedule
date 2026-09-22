@@ -51,9 +51,6 @@ class _LoginScreenState extends State<LoginScreen> {
   /// 后台登录闭环在跑（点过登录到出结果前），期间按钮禁用防连点。
   bool _submitting = false;
 
-  /// 区分「程序填的」和「用户敲的」：程序往验证码框填识别结果不算用户输入。
-  bool _autoFilling = false;
-
   /// 本页自己的提交提示（区别于 controller.loginError 的服务端错误）：
   /// 「正在后台识别验证码…」/「识别拿不到结果请手动输入」。
   String? _submitHint;
@@ -106,10 +103,9 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       final String? guess = _controller?.captchaGuess;
       if (guess != null && guess.isNotEmpty && _captcha.text.isEmpty) {
-        _autoFilling = true;
-        _captcha.text = guess;
-        _autoFilling = false;
-        setState(() {});
+        setState(() {
+          _captcha.text = guess;
+        });
       }
     });
   }
@@ -229,7 +225,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Text(
                   '验证码自动识别失败'
                   '${controller.captchaOcrError == null ? '' : '（${controller.captchaOcrError}）'}'
-                  '，请照图手动输入',
+                  '，请手动输入',
                   style: const TextStyle(
                     color: GridColors.textSecondary,
                     fontSize: 12,
@@ -262,8 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
             _ErrorBanner(
               message: error,
               // 「图已经换过」只对看得见图的人有意义；验证码还藏着时不说这句。
-              hint:
-                  hasCaptcha && _showCaptchaFallback
+              hint: hasCaptcha && _showCaptchaFallback
                   ? '验证码已自动更换，请重新输入'
                   : null,
             ),
@@ -293,17 +288,53 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit(ScheduleController controller) async {
-    // 用户手动点登录了，之后不再自动提交（识别结果照常填入输入框）。
-    _autoTried = true;
-    String captcha = _captcha.text.trim();
+    if (_submitting || controller.loginLoading) {
+      return;
+    }
+    final String typed = _captcha.text.trim();
+
+    // 无感模式：验证码还藏着、框里也没字 → 点登录交给后台闭环
+    // （等识别 → 提交 → 服务端报验证码错就自动换图重试，最多 3 次）。
+    if (!_showCaptchaFallback && typed.isEmpty) {
+      setState(() {
+        _submitting = true;
+        _submitHint = '正在后台识别验证码…';
+      });
+      final bool ok = await controller.autoLoginWithCaptcha(
+        account: _account.text.trim(),
+        password: _password.text,
+        rememberPassword: _remember,
+      );
+      if (!mounted) {
+        return;
+      }
+      final String? error = controller.loginError;
+      // 只有「验证码搞不定」才把验证码亮出来；账号/密码错与它无关，不用打扰。
+      final bool captchaRelated =
+          controller.captchaOcrFailed ||
+          (error != null && error.contains('验证码'));
+      setState(() {
+        _submitting = false;
+        _submitHint = null;
+        if (captchaRelated) {
+          _showCaptchaFallback = true;
+        }
+      });
+      if (ok) {
+        // 会话已经换掉了，回到「我的信息」就能看到新账号的姓名学号。
+        Navigator.of(context).maybePop();
+      }
+      return;
+    }
+
+    // 兜底模式（或用户已手输验证码）：直接提交这一次，不再自动重试。
+    String captcha = typed;
     if (captcha.isEmpty) {
-      // 验证码框还空着：等一下可能在跑的识别（通常一两秒内出结果），
-      // 等到了直接用 —— 用户什么都不用填。
+      // 框还空着：等一下可能在跑的识别（通常一两秒内出结果）。
       captcha = (await controller.awaitCaptchaGuess()) ?? '';
     }
     if (captcha.isEmpty) {
-      // 识别彻底拿不到结果：验证码是一次性的，不浪费一次服务端校验去交空表单
-      // （交了也只会换回「验证码不能为空」，图还得重取）。
+      // 识别彻底拿不到结果：验证码是一次性的，不浪费一次服务端校验去交空表单。
       if (!mounted) {
         return;
       }
@@ -330,7 +361,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     if (ok) {
-      // 会话已经换掉了，回到「我的信息」就能看到新账号的姓名学号。
       Navigator.of(context).maybePop();
       return;
     }
@@ -433,7 +463,7 @@ class _RememberPasswordTile extends StatelessWidget {
             const SizedBox(width: 8),
             const Expanded(
               child: Text(
-                '仅保存在本机，验证码自动识别提交',
+                '仅保存在本机，只为下次免输',
                 style: TextStyle(
                   color: GridColors.textSecondary,
                   fontSize: 11.5,
@@ -470,8 +500,9 @@ class _HintCard extends StatelessWidget {
               '会话过期后，在这里用学号密码重新登录即可。\n'
               '登录成功后会话与学号保存在本机，下次打开不用再登；'
               '勾选「记住密码」可以把密码也存在本机（下次登录免输）。'
-              '验证码由本机离线识别并自动提交，偶尔认错会自动换一张重试；'
-              '也可以点图手动换一张自己输入。随时可在「我的信息」页退出登录。',
+              '验证码不用你管：点「登录」后由本机离线识别并自动提交，'
+              '偶尔认错会自动换一张重试；实在识别不出来时验证码框会自己出现，'
+              '照图输入即可。随时可在「我的信息」页退出登录。',
               style: TextStyle(color: Color(0xFF3A4A66), fontSize: 12.5),
             ),
           ),

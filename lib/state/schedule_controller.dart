@@ -667,6 +667,10 @@ class ScheduleController extends ChangeNotifier {
     try {
       return await done.future.timeout(const Duration(seconds: 12));
     } on TimeoutException {
+      // 等满了还没结果：这张图按识别失败处理 —— 免得调用方（登录页）
+      // 既交不了又拿不到任何「为什么」，下一次也能直接快速失败不再陪等。
+      _captchaOcrFailed = true;
+      notifyListeners();
       return _captchaGuess;
     }
   }
