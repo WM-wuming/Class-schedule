@@ -20,16 +20,9 @@
 #    注意：密码建议只用字母数字，含 # = \ $ 等字符时 Java Properties 的转义规则会咬人。
 #    存完把 keystore-base64.txt 删掉（里面是私钥）。
 #
-# 2) Release 权限：本文件已在 release 任务上声明 contents: write。
-#    若创建 Release 报「HTTP 403: Resource not accessible by integration」，按顺序排查：
-#      a. 仓库 Settings → Actions → General → Workflow permissions 改成
-#         「Read and write permissions」（最常见的原因，改一次即可）；
-#      b. 手动触发（workflow_dispatch）这条路要由工作流现建标签，而 GITHUB_TOKEN
-#         永远拿不到 workflows 写权限 —— 当标签指向的提交含 .github/workflows 变更时
-#         必被 403。解法：先本地 `git tag vX.Y.Z && git push origin vX.Y.Z`，用标签推送
-#         触发（推荐，这条路上标签已存在、不需要建，也就不会碰到该限制）；或配一个
-#         RELEASE_TOKEN Secret（细粒度 PAT，仓库权限 Contents: Read and write +
-#         Workflows: Read and write），配好后工作流会自动优先使用它。
+# 2) Release 权限：本文件已在 release 任务上声明 contents: write，无需改仓库设置。
+#    但若仓库 Settings → Actions → General 里的 Workflow permissions 设成了
+#    「Read repository contents only」，则需要在那边放开，或保持本文件的声明不变。
 name: Release
 
 on:
@@ -348,31 +341,12 @@ jobs:
             [ -f "assets/$f" ] || { echo "::error::缺少产物 $f"; exit 1; }
           done
 
-      # 标签单独一步处理：GITHUB_TOKEN 永远拿不到 workflows 写权限，当标签要指向的提交
-      # 里含 .github/workflows 变更时，「建标签」这一步会被 403 挡掉。这里显式建标签，
-      # 失败时把原因和解法写进日志，而不是丢一个裸的 403 出来。
-      - name: 准备标签
-        env:
-          # 配了 RELEASE_TOKEN（细粒度 PAT：Contents 读写 + Workflows 读写）就优先用它
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
-            echo "标签 $TAG 已存在，直接使用"
-          else
-            echo "标签 $TAG 不存在，创建到本次构建的提交 $GITHUB_SHA"
-            if ! gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-                   -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"; then
-              echo "::error::创建标签被拒绝。GITHUB_TOKEN 拿不到 workflows 写权限，而标签指向的提交包含 .github/workflows 变更时 GitHub 会要求该权限。两种解法：① 本地 git tag $TAG && git push origin $TAG 后再走标签推送触发（推荐）；② 配一个 RELEASE_TOKEN Secret（细粒度 PAT，仓库权限 Contents: Read and write + Workflows: Read and write）。"
-              exit 1
-            fi
-          fi
-
       - name: 生成发布说明
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
-            echo "## 广应科课表 $TAG"
+            echo "## 广应课课表 $TAG"
             echo
             echo "| 平台 | 产物 | 说明 |"
             echo "| --- | --- | --- |"
@@ -390,15 +364,19 @@ jobs:
           } > release-notes.md
           head -n 40 release-notes.md
 
-      # 标签在上一步已经确保存在（新建的或手工推的），所以不需要 --target；
-      # --verify-tag 只是防止手输的标签名打错，对不上就报错而不是发错版本。
       - name: 创建 Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          args=(--repo "$GITHUB_REPOSITORY" --title "广应科课表 $TAG" --notes-file release-notes.md --verify-tag)
+          args=(--repo "$GITHUB_REPOSITORY" --title "广应课课表 $TAG" --notes-file release-notes.md)
           case "$TAG" in
             *-*) args+=(--prerelease) ;;   # v1.1.34-beta 这类带后缀的标成预发布
           esac
-          gh release create "$TAG" "${args[@]}" assets/*
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手动触发时标签可能还没建，就地创到当前提交上
+            gh release create "$TAG" "${args[@]}" --target "$GITHUB_SHA" assets/*
+          else
+            # 标签推送：标签已存在，用它校验一下免得推错
+            gh release create "$TAG" "${args[@]}" --verify-tag assets/*
+          fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
