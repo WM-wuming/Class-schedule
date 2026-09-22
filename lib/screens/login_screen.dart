@@ -43,17 +43,19 @@ class _LoginScreenState extends State<LoginScreen> {
   ScheduleController? _controller;
   bool _listenerAttached = false;
 
-  /// 自动登录相关：
-  /// * [_captchaManuallyEdited] —— 用户自己动过验证码框后，自动填入/自动提交全部让路；
-  /// * [_autoTried] —— 自动登录整个流程只主动跑一次，之后交给用户手动；
-  /// * [_autoFilling] —— 区分「程序填的」和「用户敲的」，填入不算手动编辑。
-  bool _captchaManuallyEdited = false;
-  bool _autoTried = false;
-  bool _autoSubmitting = false;
+  /// 验证码区的可见性：**默认整个隐藏** —— 识别、提交全在后台闭环里跑，
+  /// 用户只管账号密码。只有后台实在搞不定（识别不出 / 连续验证码错）
+  /// 才把它亮出来，让用户照图手输兜底。
+  bool _showCaptchaFallback = false;
+
+  /// 后台登录闭环在跑（点过登录到出结果前），期间按钮禁用防连点。
+  bool _submitting = false;
+
+  /// 区分「程序填的」和「用户敲的」：程序往验证码框填识别结果不算用户输入。
   bool _autoFilling = false;
 
   /// 本页自己的提交提示（区别于 controller.loginError 的服务端错误）：
-  /// 目前用在「验证码没填、识别也拿不到结果」时，提示用户手动输入。
+  /// 「正在后台识别验证码…」/「识别拿不到结果请手动输入」。
   String? _submitHint;
 
   @override
@@ -62,18 +64,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _account.text = widget.initialAccount;
     _password.text = widget.initialPassword;
     _remember = widget.initialPassword.isNotEmpty;
-    // 用户亲手敲过验证码 → 这一轮就不做自动填入/自动提交了（他显然想自己来）。
-    _captcha.addListener(() {
-      if (_autoFilling) {
-        return;
-      }
-      _captchaManuallyEdited = true;
-    });
-    // 账号 / 敲完密码的那一刻也要检查一次自动提交（识别结果可能早就绪了）。
-    _account.addListener(_handleFieldChanged);
-    _password.addListener(_handleFieldChanged);
-    // 进页面就先要一张验证码。放到帧后是因为 [ScheduleController.startLogin]
-    // 会立刻 notifyListeners，不能在 build 期间改状态。
+    // 进页面就先要一张验证码（后台识别同步开跑）——放到帧后是因为
+    // [ScheduleController.startLogin] 会立刻 notifyListeners，不能在 build 期间改状态。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ScheduleScope.of(context).startLogin();
@@ -90,8 +82,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _listenerAttached = true;
     final ScheduleController controller = ScheduleScope.of(context);
     _controller = controller;
-    // 验证码识别结果一到位（控制器 notify），就把识别文本填进输入框；
-    // 账号密码也齐的话直接自动提交 —— 用户一个字都不用敲。
+    // 只为兜底模式的自动填入服务：识别结果一到位就填进空框，用户不用从零手打。
+    // 注意**不自动提交** —— 提交只发生在用户点「登录」的那一刻。
     controller.addListener(_handleControllerChanged);
   }
 
@@ -104,78 +96,22 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  /// 控制器有任何变化时（识别完成、验证码换图、登录结束）检查一次自动流程。
+  /// 控制器变化（识别完成、验证码换图）：仅在兜底模式下把识别结果填进空框。
   ///
-  /// 真正的动作挪到帧后执行：通知可能在 build 过程中发出，
-  /// 这里如果直接 setState 会触发「setState during build」断言。
+  /// 动作放到帧后：通知可能在 build 过程中发出，直接 setState 会触发断言。
   void _handleControllerChanged() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _syncAutoLogin();
+      if (!mounted || !_showCaptchaFallback) {
+        return;
       }
-    });
-  }
-
-  /// 账号 / 密码输入框文字变化：顺手刷新按钮可用态，并检查一次自动提交。
-  void _handleFieldChanged() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      final String? guess = _controller?.captchaGuess;
+      if (guess != null && guess.isNotEmpty && _captcha.text.isEmpty) {
+        _autoFilling = true;
+        _captcha.text = guess;
+        _autoFilling = false;
         setState(() {});
-        _syncAutoLogin();
       }
     });
-  }
-
-  void _syncAutoLogin() {
-    final ScheduleController? controller = _controller;
-    if (controller == null || !mounted) {
-      return;
-    }
-
-    // 1) 自动填入：识别结果到了就填，填过就一直跟到最新（除非用户自己改过）。
-    final String? guess = controller.captchaGuess;
-    if (guess != null &&
-        guess.isNotEmpty &&
-        !_captchaManuallyEdited &&
-        _captcha.text != guess) {
-      _autoFilling = true;
-      _captcha.text = guess;
-      _autoFilling = false;
-      setState(() {});
-    }
-
-    // 2) 自动提交：账号密码都齐、识别结果也有、还没自动试过 → 直接登录。
-    //    账号密码是「记住密码」回填的或用户已经敲完的场景。
-    if (_autoTried ||
-        _autoSubmitting ||
-        _captchaManuallyEdited ||
-        controller.loginLoading ||
-        _account.text.trim().isEmpty ||
-        _password.text.isEmpty ||
-        guess == null ||
-        guess.isEmpty) {
-      return;
-    }
-    _autoTried = true;
-    _autoSubmitting = true;
-    setState(() {});
-    _runAutoLogin(controller);
-  }
-
-  Future<void> _runAutoLogin(ScheduleController controller) async {
-    final bool ok = await controller.autoLoginWithCaptcha(
-      account: _account.text.trim(),
-      password: _password.text,
-      rememberPassword: _remember,
-    );
-    if (!mounted) {
-      return;
-    }
-    _autoSubmitting = false;
-    setState(() {});
-    if (ok) {
-      Navigator.of(context).maybePop();
-    }
   }
 
   @override
@@ -255,46 +191,66 @@ class _LoginScreenState extends State<LoginScreen> {
             onChanged: (bool next) => setState(() => _remember = next),
           ),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              Expanded(
-                child: FTextField(
-                  control: FTextFieldControl.managed(
-                    controller: _captcha,
-                    onChange: (_) => setState(() {
-                      // 用户开始动手填了，之前「识别失败」的提示就该消失。
-                      _submitHint = null;
-                    }),
+          // 验证码区默认整个不出现：识别、提交都在后台闭环里，用户看不到它。
+          // 只有后台闭环失败且与验证码有关时才亮出来给用户手输兜底。
+          if (_showCaptchaFallback) ...<Widget>[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                Expanded(
+                  child: FTextField(
+                    control: FTextFieldControl.managed(
+                      controller: _captcha,
+                      onChange: (_) => setState(() {
+                        // 用户开始动手填了，之前「识别失败」的提示就该消失。
+                        _submitHint = null;
+                      }),
+                    ),
+                    label: const Text('验证码'),
+                    hint: '自动识别没搞定，请照图输入',
+                    textInputAction: TextInputAction.done,
                   ),
-                  label: const Text('验证码'),
-                  hint: '已自动识别，也可手动修改',
-                  textInputAction: TextInputAction.done,
+                ),
+                const SizedBox(width: 12),
+                _CaptchaImage(
+                  bytes: controller.captchaImage,
+                  loading: loading,
+                  onRefresh: () {
+                    _captcha.clear();
+                    _submitHint = null;
+                    controller.startLogin();
+                  },
+                ),
+              ],
+            ),
+            if (controller.captchaOcrFailed && _captcha.text.trim().isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '验证码自动识别失败'
+                  '${controller.captchaOcrError == null ? '' : '（${controller.captchaOcrError}）'}'
+                  '，请照图手动输入',
+                  style: const TextStyle(
+                    color: GridColors.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              _CaptchaImage(
-                bytes: controller.captchaImage,
-                loading: loading,
-                onRefresh: () {
-                  _captcha.clear();
-                  _submitHint = null;
-                  controller.startLogin();
-                },
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FButton(
+                variant: .ghost,
+                onPress: loading ? null : controller.startLogin,
+                child: const Text('换一张验证码'),
               ),
-            ],
-          ),
-          // 识别失败 / 没等到识别结果的提示：别让用户对着空框干点登录没反应。
-          // 失败原因（识别口给出的诊断）一并亮出来，用户照着念就能反馈定位。
-          if (_submitHint != null ||
-              (controller.captchaOcrFailed && _captcha.text.trim().isEmpty))
+            ),
+          ],
+          if (_submitHint != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                _submitHint ??
-                    '验证码自动识别失败'
-                        '${controller.captchaOcrError == null ? '' : '（${controller.captchaOcrError}）'}'
-                        '，请手动输入',
+                _submitHint!,
                 style: const TextStyle(
                   color: GridColors.textSecondary,
                   fontSize: 12,
@@ -305,26 +261,31 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 16),
             _ErrorBanner(
               message: error,
-              // 登录失败后验证码已经自动换过一张了，说一句 —— 不然用户下次抬眼
-              // 发现图变了，会以为是自己看花了眼。
-              hint: hasCaptcha ? '验证码已自动更换，请重新输入' : null,
+              // 「图已经换过」只对看得见图的人有意义；验证码还藏着时不说这句。
+              hint:
+                  hasCaptcha && _showCaptchaFallback
+                  ? '验证码已自动更换，请重新输入'
+                  : null,
             ),
+            // 取不到验证码图时后台闭环无从跑起：给个手动重试的口子。
+            if (!hasCaptcha) ...<Widget>[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FButton(
+                  variant: .ghost,
+                  onPress: loading ? null : controller.startLogin,
+                  child: const Text('重新获取验证码'),
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: 22),
           FButton(
-            onPress: loading || !hasCaptcha || !filled
+            onPress: loading || _submitting || !hasCaptcha || !filled
                 ? null
                 : () => _submit(controller),
-            child: Text(loading ? '请稍候…' : '登录'),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FButton(
-              variant: .ghost,
-              onPress: loading ? null : controller.startLogin,
-              child: const Text('换一张验证码'),
-            ),
+            child: Text(loading || _submitting ? '请稍候…' : '登录'),
           ),
         ],
       ),

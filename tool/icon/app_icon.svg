@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- 广应课课表 应用图标：蓝底 + 白色「读书」字形 -->
+  <!-- 广应科课表 应用图标：蓝底 + 白色「读书」字形 -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0.62" y2="1">
       <stop offset="0" stop-color="#4A80F0"/>
