@@ -32,7 +32,7 @@ class TimetableScale {
   }
 
   /// 参照字号：课程名的字号。网格尺寸按它的缩放比例等比换算。
-  static const double referenceFontSize = 13;
+  static const double referenceFontSize = 12;
 
   /// 缩放系数下限：贴着系统「最小字号」。
   static const double minFactor = 0.85;
@@ -239,16 +239,17 @@ class _TimetableGridState extends State<TimetableGrid> {
                         child: _DayColumn(
                           day: day,
                           metrics: metrics,
-                          sessions: widget.sessions
-                              .where(
-                                (CourseSession session) =>
-                                    session.weekday == day.weekday,
-                              )
-                              .toList()
-                            ..sort(
-                              (CourseSession a, CourseSession b) =>
-                                  a.startPeriod.compareTo(b.startPeriod),
-                            ),
+                          sessions:
+                              widget.sessions
+                                  .where(
+                                    (CourseSession session) =>
+                                        session.weekday == day.weekday,
+                                  )
+                                  .toList()
+                                ..sort(
+                                  (CourseSession a, CourseSession b) =>
+                                      a.startPeriod.compareTo(b.startPeriod),
+                                ),
                           currentWeek: widget.currentWeek,
                           isToday: widget.todayWeekday == day.weekday,
                           dimInactiveCourses: widget.dimInactiveCourses,
@@ -295,7 +296,7 @@ class _Gutter extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: GridColors.textPrimary,
-                      fontSize: 11,
+                      fontSize: 10,
                       height: 1.1,
                       fontWeight: FontWeight.w500,
                     ),
@@ -308,7 +309,7 @@ class _Gutter extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: GridColors.textSecondary,
-                        fontSize: 10,
+                        fontSize: 9,
                         height: 1.1,
                       ),
                     ),
@@ -318,7 +319,7 @@ class _Gutter extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: GridColors.textSecondary,
-                        fontSize: 10,
+                        fontSize: 9,
                         height: 1.1,
                       ),
                     ),
@@ -343,7 +344,7 @@ class _Gutter extends StatelessWidget {
                       period.breakAfter!,
                       style: const TextStyle(
                         color: GridColors.textSecondary,
-                        fontSize: 10.5,
+                        fontSize: 9.5,
                         height: 1.1,
                       ),
                     ),
@@ -384,9 +385,7 @@ class _DayColumn extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: isToday ? GridColors.todayColumn : GridColors.surface,
-        border: const Border(
-          right: BorderSide(color: GridColors.divider),
-        ),
+        border: const Border(right: BorderSide(color: GridColors.divider)),
       ),
       child: Stack(
         children: <Widget>[
@@ -429,7 +428,8 @@ class _DayColumn extends StatelessWidget {
               right: TimetableGrid.columnInset,
               child: CourseBlock(
                 session: session,
-                dimmed: dimInactiveCourses && !session.isActiveInWeek(currentWeek),
+                dimmed:
+                    dimInactiveCourses && !session.isActiveInWeek(currentWeek),
                 showTeacher: showTeacher,
                 onTap: onSessionTap == null
                     ? null
@@ -513,7 +513,7 @@ class CourseBlock extends StatelessWidget {
                       session.course.name,
                       style: TextStyle(
                         color: color.accent,
-                        fontSize: 13,
+                        fontSize: 12,
                         height: 1.18,
                         fontWeight: FontWeight.w600,
                       ),
@@ -523,7 +523,7 @@ class CourseBlock extends StatelessWidget {
                       '@${session.course.location}',
                       style: const TextStyle(
                         color: GridColors.textSecondary,
-                        fontSize: 10.5,
+                        fontSize: 9.5,
                         height: 1.2,
                       ),
                     ),
@@ -532,7 +532,7 @@ class CourseBlock extends StatelessWidget {
                         session.course.teacher,
                         style: const TextStyle(
                           color: GridColors.textSecondary,
-                          fontSize: 10.5,
+                          fontSize: 9.5,
                           height: 1.2,
                         ),
                       ),

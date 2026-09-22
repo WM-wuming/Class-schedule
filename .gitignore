@@ -61,6 +61,8 @@ app.*.map.json
 /android/key.properties
 /android/*.jks
 /android/*.keystore
+# keystore 的 base64 副本（拷进 GitHub Secret 用，明文私钥，用完即删）
+/android/keystore-base64.txt
 
 # 抓取接口时的临时调试产物
 /.jw_probe/
