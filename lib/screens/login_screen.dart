@@ -285,12 +285,16 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
           // 识别失败 / 没等到识别结果的提示：别让用户对着空框干点登录没反应。
+          // 失败原因（识别口给出的诊断）一并亮出来，用户照着念就能反馈定位。
           if (_submitHint != null ||
               (controller.captchaOcrFailed && _captcha.text.trim().isEmpty))
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                _submitHint ?? '验证码自动识别不可用，请手动输入',
+                _submitHint ??
+                    '验证码自动识别失败'
+                        '${controller.captchaOcrError == null ? '' : '（${controller.captchaOcrError}）'}'
+                        '，请手动输入',
                 style: const TextStyle(
                   color: GridColors.textSecondary,
                   fontSize: 12,
@@ -343,7 +347,10 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       setState(() {
-        _submitHint = '验证码自动识别没成功，请照图手动输入后再点登录';
+        _submitHint =
+            '验证码自动识别没成功'
+            '${controller.captchaOcrError == null ? '' : '（${controller.captchaOcrError}）'}'
+            '，请照图手动输入后再点登录';
       });
       return;
     }

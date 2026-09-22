@@ -629,6 +629,9 @@ class ScheduleController extends ChangeNotifier {
     } else {
       // 这张图识别不出来：登录页会提示手动输入，别让用户干等。
       _captchaOcrFailed = true;
+      // 不通知的话，提示要等下一次任意 rebuild 才出现（比如用户点了别处），
+      // 看起来像「没反应」。
+      notifyListeners();
     }
     return guess;
   }
@@ -639,6 +642,12 @@ class ScheduleController extends ChangeNotifier {
   /// 当前这张验证码的自动识别是否已失败（该提示用户手动输入了）。
   bool get captchaOcrFailed => _captchaOcrFailed;
 
+  /// 当前这张验证码识别失败的原因（识别口给出的诊断信息）。
+  ///
+  /// 登录页拼进提示里展示，用户照着念就能反馈定位 —— 不再是干巴巴的
+  /// 「识别失败」四个字。
+  String? get captchaOcrError => _captchaRecognizer.lastError;
+
   /// 等当前验证码的识别结果：已有就直接给，没有就等识别完成信号（最多 12s）。
   ///
   /// 登录页手动提交时也用它兜底 —— 用户点登录的瞬间识别可能还在跑，
@@ -646,6 +655,10 @@ class ScheduleController extends ChangeNotifier {
   Future<String?> awaitCaptchaGuess() async {
     if (_captchaGuess != null) {
       return _captchaGuess;
+    }
+    if (_captchaOcrFailed) {
+      // 这张图的识别已经跑完且失败了：没有可等的了，别让用户陪着耗 12 秒。
+      return null;
     }
     final Completer<String?>? done = _captchaGuessDone;
     if (done == null) {

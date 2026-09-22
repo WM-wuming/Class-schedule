@@ -27,14 +27,17 @@ class MlKitCaptchaRecognizer implements CaptchaRecognizer {
   ///
   /// 识别契约不抛异常，但完全吞掉失败会让「为什么没自动填」无从查起；
   /// 登录页会把它拼进提示里，方便用户反馈。
-  static String? lastError;
+  static String? _lastError;
+
+  @override
+  String? get lastError => _lastError;
 
   TextRecognizer get _recognizer =>
       _shared ??= TextRecognizer(script: TextRecognitionScript.latin);
 
   @override
   Future<String?> recognize(Uint8List imageBytes) async {
-    lastError = null;
+    _lastError = null;
     if (!_platformSupported || imageBytes.isEmpty) {
       return null;
     }
@@ -63,11 +66,17 @@ class MlKitCaptchaRecognizer implements CaptchaRecognizer {
             );
       final RecognizedText result = await _recognizer.processImage(image);
       final String cleaned = _alphanumeric(result.text);
-      return cleaned.isEmpty ? null : cleaned;
+      if (cleaned.isEmpty) {
+        // 没抛异常但啥也没读出来（噪点/彩色字太花）——也记个原因，
+        // 否则登录页的提示里「原因」是空的，看起来像出了没来由的错。
+        _lastError ??= '没读出有效字符';
+        return null;
+      }
+      return cleaned;
     } catch (error) {
       // 识别不了（插件缺失 / 模型没装好 / 图片坏）就当没识别过，
       // 登录页退化成手动输入；原因留在这里供界面提示与排查。
-      lastError = error.toString();
+      _lastError = error.toString();
       return null;
     }
   }

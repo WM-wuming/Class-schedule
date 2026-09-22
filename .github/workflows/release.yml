@@ -10,14 +10,15 @@
 # 1) 配置 Android 签名（否则 Android 任务会在「校验签名 Secrets」这步失败；
 #    这是故意的：不做这个校验，Gradle 会静默退回 debug 签名，产出的包没法覆盖升级）。
 #    本机执行（Git Bash）：
-#       base64 -w0 android/release-keystore.jks > ks.txt
+#       base64 -w0 android/release-keystore.jks > keystore-base64.txt
+#    或者 Windows 上直接用现成的 android/keystore-base64.txt（它已被 gitignore）。
 #    GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret，建 4 个：
-#       ANDROID_KEYSTORE_BASE64   ks.txt 的全部内容
+#       ANDROID_KEYSTORE_BASE64   keystore-base64.txt 的全部内容（单行，别折行）
 #       ANDROID_KEYSTORE_PASSWORD android/key.properties 里的 storePassword
 #       ANDROID_KEY_ALIAS         android/key.properties 里的 keyAlias
 #       ANDROID_KEY_PASSWORD      android/key.properties 里的 keyPassword
 #    注意：密码建议只用字母数字，含 # = \ $ 等字符时 Java Properties 的转义规则会咬人。
-#    存完把 ks.txt 删掉（里面是私钥）。
+#    存完把 keystore-base64.txt 删掉（里面是私钥）。
 #
 # 2) Release 权限：本文件已在 release 任务上声明 contents: write，无需改仓库设置。
 #    但若仓库 Settings → Actions → General 里的 Workflow permissions 设成了

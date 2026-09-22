@@ -330,18 +330,24 @@ class FakeCaptchaRecognizer implements CaptchaRecognizer {
   /// 识别被调用的次数。
   int calls = 0;
 
+  /// 返回 null 时附带的原因（模拟真机的诊断信息）。
+  @override
+  String? lastError = '假识别器：图里没字';
+
   @override
   Future<String?> recognize(Uint8List imageBytes) async {
     final Completer<void>? pending = gate;
     if (pending != null) {
       await pending.future;
     }
-    if (answers.isEmpty) {
-      return null;
-    }
-    final int index = math.min(calls, answers.length - 1);
+    final String? answer = answers.isEmpty
+        ? null
+        : answers[math.min(calls, answers.length - 1)];
     calls += 1;
-    return answers[index];
+    if (answer == null) {
+      lastError = '假识别器：第 $calls 张图没读出字';
+    }
+    return answer;
   }
 }
 

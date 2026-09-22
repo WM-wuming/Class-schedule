@@ -1,5 +1,6 @@
 import 'captcha_recognizer_stub.dart'
-    if (dart.library.io) 'captcha_recognizer_mlkit.dart' as impl;
+    if (dart.library.io) 'captcha_recognizer_mlkit.dart'
+    as impl;
 
 import 'dart:typed_data';
 
@@ -11,6 +12,12 @@ import 'dart:typed_data';
 abstract interface class CaptchaRecognizer {
   /// 识别验证码图片，返回图里的字符（原样大小写）；认不出返回 null。
   Future<String?> recognize(Uint8List imageBytes);
+
+  /// 最近一次识别失败的原因（人能看懂的一句话）；null = 最近一次没失败。
+  ///
+  /// 识别失败完全静默的话，真机上「为什么永远识别不出来」无从排查 ——
+  /// 登录页会把这句话拼进提示里，用户照着念就能定位。
+  String? get lastError;
 }
 
 /// 按当前平台建一个识别口。

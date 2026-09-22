@@ -6,3 +6,8 @@
 -dontwarn com.google.mlkit.vision.text.japanese.**
 -dontwarn com.google.mlkit.vision.text.korean.**
 -dontwarn com.google.mlkit.vision.text.devanagari.**
+
+# 保险：真机上识别「永远失败」的一个嫌疑是 R8 把 ML Kit 运行时需要的类
+# 裁坏/重命名了（consumer rules 覆盖不到我们自定义的调用方式）。
+# ML Kit 本体保留不裁，APK 体积代价可接受（模型本来就在里面）。
+-keep class com.google.mlkit.** { *; }

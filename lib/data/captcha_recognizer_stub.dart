@@ -6,6 +6,9 @@ import 'captcha_recognizer.dart';
 class NoopCaptchaRecognizer implements CaptchaRecognizer {
   @override
   Future<String?> recognize(Uint8List imageBytes) async => null;
+
+  @override
+  String? get lastError => null;
 }
 
 CaptchaRecognizer createCaptchaRecognizer() => NoopCaptchaRecognizer();
