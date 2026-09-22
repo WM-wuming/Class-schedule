@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 「下一节课」小组件的紧凑尺寸（2 格宽 × 1 格高）：放不下四行大卡片，
-     只留两行 —— 课程名 + 时间/地点；状态与日期（上课中/明天…）拼进第二行。 -->
+<!-- 「下一节课」小组件的紧凑尺寸（2 格宽 × 1 格高）。
+     内容对齐 2×2 参考版式的信息集（状态+日期 / 课程 / 时间·节次 / 地点·老师）：
+     第一行 = 课程名 + 状态·日期，第二行 = 时间·节次·地点·老师（超宽省略）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_small_root"
     android:layout_width="match_parent"
@@ -12,7 +13,7 @@
     android:paddingTop="6dp"
     android:paddingBottom="7dp">
 
-    <!-- 有课时的正文：垂直居中的两行 -->
+    <!-- 有课时的正文 -->
     <LinearLayout
         android:id="@+id/widget_small_content"
         android:layout_width="match_parent"
@@ -21,25 +22,44 @@
         android:gravity="center_vertical"
         android:visibility="visible">
 
-        <TextView
-            android:id="@+id/widget_small_name"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="高数"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/widget_small_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="高数"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/widget_small_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="下一节 · 今天"
+                android:textColor="#93A4BC"
+                android:textSize="10sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/widget_small_info"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:text="10:15-11:50 · 教学楼A-101"
+            android:text="10:15-11:50 · 第3节 · 教学楼A-101"
             android:textColor="#7FB3FF"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:maxLines="1"
             android:ellipsize="end" />
     </LinearLayout>

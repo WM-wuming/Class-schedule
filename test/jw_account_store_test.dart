@@ -683,7 +683,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('广应科课表'), findsOneWidget);
-      expect(find.textContaining('版本 1.1.47'), findsOneWidget);
+      expect(find.textContaining('版本 1.1.48'), findsOneWidget);
       expect(
         find.text('https://github.com/WM-wuming/Class-schedule'),
         findsOneWidget,

@@ -16,8 +16,9 @@ import org.json.JSONObject
  * 「下一节课」桌面小组件 —— 四种尺寸共用一套数据与刷新逻辑：
  * - [NextClassWidgetProvider]：大尺寸（约 4×2 格），四行卡片（状态 / 课程 / 时间 / 地点）；
  * - [NextClassWidgetSquareProvider]：2×2 格 —— **信息展示的主要参考版式**，四行完整信息；
- * - [NextClassWidgetSmallProvider]：紧凑横条（2 格宽 × 1 格高），两行（课程 / 时间·地点）；
- * - [NextClassWidgetTallProvider]：窄竖条（1 格宽 × 2 格高），一列（状态 / 课程 / 时间 / 地点）。
+ * - [NextClassWidgetSmallProvider]：紧凑横条（2 格宽 × 1 格高），两行装下同一套信息
+ *   （第一行 = 课程名 + 状态·日期，第二行 = 时间·节次·地点·老师）；
+ * - [NextClassWidgetTallProvider]：窄竖条（1 格宽 × 2 格高），一列（状态 / 课程 / 时间·节次 / 地点·老师）。
  *
  * 数据来源是 Flutter 侧算好的 JSON（见 lib/models/next_class.dart，经 MainActivity
  * 写进 `next_class_widget` 这个 SharedPreferences），渲染只做三件事：
@@ -25,7 +26,8 @@ import org.json.JSONObject
  * 2. 一条都没有就显示空状态；
  * 3. 在这条课的边界（开课/下课时刻）定个闹钟精准刷新，兜底另有系统 30 分钟一拍的轮询。
  *
- * 各尺寸显示的是**同一份数据、同一条课**（2×2 的信息集是完整参考，其余尺寸按空间取子集），
+ * 各尺寸显示的是**同一份数据、同一条课、同一套完整信息**（2×2 的版式是参考基准，
+ * 其余尺寸只是把同样的字段重新排进自己的空间），
  * 所以节次闹钟只挂一份（PendingIntent 相同，多处重复排也是幂等的）。
  */
 internal object NextClassWidgets {
@@ -36,7 +38,7 @@ internal object NextClassWidgets {
     private const val KEY_PAYLOAD = "payload"
     private const val ALARM_REQUEST_CODE = 41
 
-    /** 内容版式：大卡与 2×2 共用（连视图 id 都同套），横条与竖条各自精简。 */
+    /** 内容版式：大卡与 2×2 共用（连视图 id 都同套），横条与竖条把同一套信息重排进各自空间。 */
     private enum class Style { CARD, COMPACT, COLUMN }
 
     /** 一种尺寸的描述：自己的 Provider 类、布局与内容版式。 */
@@ -131,17 +133,24 @@ internal object NextClassWidgets {
                     }
 
                     Style.COMPACT -> {
-                        // 紧凑横条没有第几节：状态与日期拼进第二行（上课中 / 明天 …），超宽会省略。
+                        // 横条两行装下与 2×2 相同的信息集：
+                        // 第一行 = 课程名 + 状态·日期，第二行 = 时间·节次·地点·老师（超宽省略尾部）。
+                        val status = when {
+                            inClass -> "正在上课"
+                            else -> "下一节"
+                        }
+                        val statusLine = listOf(status, day)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" · ")
                         val where = listOf(place, teacher)
                             .filter { it.isNotEmpty() }
                             .joinToString(" · ")
-                        val info = when {
-                            inClass -> listOf("上课中", time, where)
-                            day == "今天" -> listOf(time, where)
-                            else -> listOf(day, time, where)
-                        }.filter { it.isNotEmpty() }.joinToString(" · ")
+                        val info = listOf(time, period, where)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" · ")
                         views.setViewVisibility(R.id.widget_small_empty, View.GONE)
                         views.setViewVisibility(R.id.widget_small_content, View.VISIBLE)
+                        views.setTextViewText(R.id.widget_small_status, statusLine)
                         views.setTextViewText(R.id.widget_small_name, name)
                         views.setTextViewText(R.id.widget_small_info, info)
                     }
@@ -156,15 +165,18 @@ internal object NextClassWidgets {
                         val where = listOf(place, teacher)
                             .filter { it.isNotEmpty() }
                             .joinToString(" · ")
+                        val timeLine = listOf(time, period)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" · ")
                         views.setViewVisibility(R.id.widget_tall_empty, View.GONE)
                         views.setViewVisibility(R.id.widget_tall_content, View.VISIBLE)
                         views.setTextViewText(R.id.widget_tall_status, status)
                         views.setTextViewText(R.id.widget_tall_name, name)
                         views.setViewVisibility(
                             R.id.widget_tall_time,
-                            if (time.isEmpty()) View.GONE else View.VISIBLE
+                            if (timeLine.isEmpty()) View.GONE else View.VISIBLE
                         )
-                        views.setTextViewText(R.id.widget_tall_time, time)
+                        views.setTextViewText(R.id.widget_tall_time, timeLine)
                         views.setViewVisibility(
                             R.id.widget_tall_place,
                             if (where.isEmpty()) View.GONE else View.VISIBLE
