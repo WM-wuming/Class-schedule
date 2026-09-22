@@ -14,6 +14,7 @@ import '../data/jw_http.dart';
 import '../data/jw_login.dart';
 import '../data/keep_alive_platform.dart';
 import '../data/keep_alive_store.dart';
+import '../data/reminder_ring_platform.dart';
 import '../data/reminder_store.dart';
 import '../data/timetable_cache.dart';
 import '../data/widget_updater.dart';
@@ -116,6 +117,7 @@ class ScheduleController extends ChangeNotifier {
     List<CustomCourse>? restoredCustomCourses,
     KeepAliveStore? keepAliveStore,
     KeepAlivePlatform? keepAlivePlatform,
+    ReminderRingPlatform? ringPlatform,
     KeepAliveSettings? restoredKeepAlive,
     WidgetUpdater? widgetUpdater,
     TimetableCacheStore? timetableCacheStore,
@@ -141,6 +143,7 @@ class ScheduleController extends ChangeNotifier {
        ),
        _keepAliveStore = keepAliveStore ?? const PrefsKeepAliveStore(),
        _keepAlivePlatform = keepAlivePlatform ?? createKeepAlivePlatform(),
+       _ringPlatform = ringPlatform ?? createReminderRingPlatform(),
        _keepAliveSettings = restoredKeepAlive ?? const KeepAliveSettings(),
        _widgetUpdater = widgetUpdater ?? createWidgetUpdater(),
        _captchaRecognizer = captchaRecognizer ?? createCaptchaRecognizer(),
@@ -313,6 +316,12 @@ class ScheduleController extends ChangeNotifier {
 
   /// 保活要碰系统的口子（跳系统设置页、查/申请电池优化白名单）。
   final KeepAlivePlatform _keepAlivePlatform;
+
+  /// 提醒「响铃」要碰系统的口子（勿扰豁免的查询与授权入口）。
+  final ReminderRingPlatform _ringPlatform;
+
+  /// 有没有拿到勿扰豁免授权；null = 没查到或平台不支持（界面按未知处理，不提示）。
+  bool? _dndAccess;
 
   /// 保活设置（目前只有开机自启意愿）。
   KeepAliveSettings _keepAliveSettings;
@@ -848,6 +857,8 @@ class ScheduleController extends ChangeNotifier {
     } catch (error) {
       _reminderError = '申请通知权限失败：$error';
     }
+    // 勿扰豁免只查状态不弹任何界面；查不到（老版本原生代码等）就保持 null。
+    await refreshRingStatus();
     notifyListeners();
     await _syncReminders();
     // 冷启动也把排期窗口往前铺满：只靠「当前周 + 相邻周」预取，窗口末端
@@ -892,6 +903,8 @@ class ScheduleController extends ChangeNotifier {
       return;
     }
     await refreshReminderPermission();
+    // 用户可能刚去系统里授权/收回了「勿扰打扰」，回来时把响铃状态也刷一遍。
+    await refreshRingStatus();
     await _syncReminders();
     await ensureReminderHorizon();
   }
@@ -933,6 +946,29 @@ class ScheduleController extends ChangeNotifier {
   /// 跳去系统的通知设置页（用户手动放行时用）。
   Future<bool> openReminderSystemSettings() =>
       _notifier.openNotificationSettings();
+
+  /// 当前平台有没有「勿扰豁免」这套概念（Android 有）。
+  bool get ringSupported => _ringPlatform.isSupported;
+
+  /// 有没有拿到勿扰豁免授权；null = 还没查到 / 平台不支持 / 通道异常。
+  bool? get dndAccess => _dndAccess;
+
+  /// 重新查一遍勿扰豁免授权状态（**不弹任何界面**）。
+  ///
+  /// 用户可能刚在系统设置里放行或收回，回到 App 得能反映出来。
+  Future<void> refreshRingStatus() async {
+    if (!_ringPlatform.isSupported) {
+      return;
+    }
+    _dndAccess = await _ringPlatform.dndAccessGranted();
+    notifyListeners();
+  }
+
+  /// 跳去系统的「勿扰打扰」授权页（提醒响铃的关键权限）。
+  ///
+  /// 返回是否跳成功；授权结果等用户回来后由 [refreshRingStatus]（onAppResumed
+  /// 触发）刷新。没拿到授权时勿扰/静音下提醒不会响铃，界面会用提示卡引导。
+  Future<bool> openRingSettings() => _ringPlatform.openDndAccessSettings();
 
   /// 当前保活设置。
   KeepAliveSettings get keepAliveSettings => _keepAliveSettings;

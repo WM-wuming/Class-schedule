@@ -1,6 +1,7 @@
 import 'package:class_schedule/data/class_notifier.dart';
 import 'package:class_schedule/data/jw_account_store.dart';
 import 'package:class_schedule/data/jw_client.dart';
+import 'package:class_schedule/data/reminder_ring_platform.dart';
 import 'package:class_schedule/data/reminder_store.dart';
 import 'package:class_schedule/models/course.dart';
 import 'package:class_schedule/models/reminder.dart';
@@ -332,6 +333,7 @@ void main() {
       ClassReminderSettings? restored,
       JwTransport? transport,
       JwStoredAccount? account,
+      ReminderRingPlatform? ring,
     }) async {
       final ScheduleController controller = ScheduleController(
         transport: transport ?? RecordingTransport().call,
@@ -340,6 +342,7 @@ void main() {
         reminderNotifier: notifier ?? FakeReminderNotifier(),
         reminderStore: store ?? FakeReminderStore(),
         restoredReminder: restored,
+        ringPlatform: ring ?? FakeReminderRingPlatform(),
         swipeDebounce: Duration.zero,
       );
       await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -555,6 +558,39 @@ void main() {
       expect(controller.reminderSupported, isTrue);
       controller.dispose();
     });
+
+    test('冷启动顺手查一遍勿扰豁免状态（响铃用）', () async {
+      final FakeReminderRingPlatform ring = FakeReminderRingPlatform(
+        granted: true,
+      );
+      final ScheduleController controller = await boot(ring: ring);
+
+      expect(controller.ringSupported, isTrue);
+      expect(controller.dndAccess, isTrue);
+      controller.dispose();
+    });
+
+    test('没授权时跳转走的是勿扰授权页', () async {
+      final FakeReminderRingPlatform ring = FakeReminderRingPlatform(
+        granted: false,
+      );
+      final ScheduleController controller = await boot(ring: ring);
+
+      expect(controller.dndAccess, isFalse);
+      expect(await controller.openRingSettings(), isTrue);
+      expect(ring.openSettingsCalls, 1);
+      controller.dispose();
+    });
+
+    test('平台不支持勿扰豁免时状态保持未知，不瞎给状态', () async {
+      final ScheduleController controller = await boot(
+        ring: FakeReminderRingPlatform(supported: false),
+      );
+
+      expect(controller.ringSupported, isFalse);
+      expect(controller.dndAccess, isNull);
+      controller.dispose();
+    });
   });
 
   group('设置页的上课提醒', () {
@@ -564,12 +600,17 @@ void main() {
       WidgetTester tester, {
       required ClassReminderNotifier notifier,
       required ReminderStore store,
+      ReminderRingPlatform? ring,
     }) async {
       tester.view.physicalSize = const Size(1500, 4200);
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(
-        jwApp(reminderNotifier: notifier, reminderStore: store),
+        jwApp(
+          reminderNotifier: notifier,
+          reminderStore: store,
+          ringPlatform: ring,
+        ),
       );
       await tester.pumpAndSettle();
       // 三个点菜单已移除，设置入口在「我的信息」页。
@@ -620,6 +661,56 @@ void main() {
       expect(find.text('上课前提醒'), findsOneWidget);
       expect(find.textContaining('当前平台不支持系统通知'), findsOneWidget);
       expect(find.text('已排提醒'), findsNothing);
+    });
+
+    testWidgets('没授权勿扰豁免时提示去授权，点「去授权」跳系统页', (
+      WidgetTester tester,
+    ) async {
+      final FakeReminderRingPlatform ring = FakeReminderRingPlatform(
+        granted: false,
+      );
+      await openSettings(
+        tester,
+        notifier: FakeReminderNotifier(),
+        store: FakeReminderStore(),
+        ring: ring,
+      );
+
+      expect(find.textContaining('提醒不会响铃'), findsOneWidget);
+      expect(find.text('去授权'), findsOneWidget);
+
+      await tester.tap(find.text('去授权'));
+      await tester.pumpAndSettle();
+      expect(ring.openSettingsCalls, 1);
+    });
+
+    testWidgets('已授权勿扰豁免时显示响铃状态，不再提示', (
+      WidgetTester tester,
+    ) async {
+      await openSettings(
+        tester,
+        notifier: FakeReminderNotifier(),
+        store: FakeReminderStore(),
+        ring: FakeReminderRingPlatform(granted: true),
+      );
+
+      expect(find.text('响铃'), findsOneWidget);
+      expect(find.textContaining('照常响铃'), findsOneWidget);
+      expect(find.text('去授权'), findsNothing);
+    });
+
+    testWidgets('勿扰豁免状态未知（查不到）时两边都不显示', (
+      WidgetTester tester,
+    ) async {
+      await openSettings(
+        tester,
+        notifier: FakeReminderNotifier(),
+        store: FakeReminderStore(),
+        ring: FakeReminderRingPlatform(granted: null),
+      );
+
+      expect(find.text('去授权'), findsNothing);
+      expect(find.text('响铃'), findsNothing);
     });
   });
 }

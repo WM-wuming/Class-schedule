@@ -258,6 +258,10 @@ class FlutterClassReminderNotifier implements ClassReminderNotifier {
       // 上课提醒要能「弹到脸上」，不然错过一节课就没意义了。
       importance: Importance.high,
       priority: Priority.high,
+      // 归类为「闹钟」：拿到勿扰豁免授权后（见 reminder_ring_platform.dart），
+      // 勿扰模式的默认例外规则会放行闹钟类别的铃声 —— 开着勿扰提醒也响。
+      // 注意渠道属性只在首次创建时生效，老用户升级后渠道已存在、不受影响。
+      category: AndroidNotificationCategory.alarm,
       // 同一节课的提醒只留一条，不静默累积。
       onlyAlertOnce: true,
     ),

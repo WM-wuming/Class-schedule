@@ -12,6 +12,7 @@ import 'package:class_schedule/data/jw_http.dart';
 import 'package:class_schedule/data/keep_alive_platform.dart';
 import 'package:class_schedule/data/keep_alive_store.dart';
 import 'package:class_schedule/data/captcha_recognizer.dart';
+import 'package:class_schedule/data/reminder_ring_platform.dart';
 import 'package:class_schedule/data/reminder_store.dart';
 import 'package:class_schedule/data/timetable_cache.dart';
 import 'package:class_schedule/data/widget_updater.dart';
@@ -289,6 +290,7 @@ Widget jwApp({
   List<CustomCourse>? restoredCustomCourses,
   KeepAliveStore? keepAliveStore,
   KeepAlivePlatform? keepAlivePlatform,
+  ReminderRingPlatform? ringPlatform,
   KeepAliveSettings? restoredKeepAlive,
   WidgetUpdater? widgetUpdater,
   TimetableCacheStore? timetableCacheStore,
@@ -306,6 +308,7 @@ Widget jwApp({
   restoredCustomCourses: restoredCustomCourses,
   keepAliveStore: keepAliveStore ?? FakeKeepAliveStore(),
   keepAlivePlatform: keepAlivePlatform ?? FakeKeepAlivePlatform(),
+  ringPlatform: ringPlatform ?? FakeReminderRingPlatform(),
   restoredKeepAlive: restoredKeepAlive,
   widgetUpdater: widgetUpdater ?? FakeWidgetUpdater(),
   timetableCacheStore: timetableCacheStore ?? FakeTimetableCacheStore(),
@@ -778,6 +781,32 @@ class FakeReminderNotifier implements ClassReminderNotifier {
   Future<void> cancelAll() async {
     cancels += 1;
     synced = <ClassReminder>[];
+  }
+}
+
+/// 假的提醒「响铃」口（勿扰豁免）：不碰 MethodChannel，只记录调用。
+class FakeReminderRingPlatform implements ReminderRingPlatform {
+  FakeReminderRingPlatform({this.supported = true, this.granted});
+
+  /// 这个平台有没有勿扰豁免概念（Web / 桌面没有）。
+  bool supported;
+
+  /// 授权状态；null = 查不到（界面按未知处理）。
+  bool? granted;
+
+  /// 跳系统授权页的次数。
+  int openSettingsCalls = 0;
+
+  @override
+  bool get isSupported => supported;
+
+  @override
+  Future<bool?> dndAccessGranted() async => granted;
+
+  @override
+  Future<bool> openDndAccessSettings() async {
+    openSettingsCalls += 1;
+    return true;
   }
 }
 

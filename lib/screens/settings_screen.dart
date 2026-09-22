@@ -302,6 +302,16 @@ class ReminderSettingsScreen extends StatelessWidget {
             onAction: () => unawaited(controller.openReminderSystemSettings()),
           ),
         ],
+        // 响铃（勿扰豁免）：只查状态不弹窗，所以这里给入口让用户主动去授权。
+        // 未知状态（null）不提示，避免「查不到」被误报成「没授权」。
+        if (controller.ringSupported && controller.dndAccess == false) ...<Widget>[
+          const SizedBox(height: 8),
+          _NoticeCard(
+            message: '手机开着勿扰或静音时，提醒不会响铃。允许「勿扰打扰」后照常响铃。',
+            actionLabel: '去授权',
+            onAction: () => unawaited(controller.openRingSettings()),
+          ),
+        ],
         if (failure != null) ...<Widget>[
           const SizedBox(height: 8),
           _NoticeCard(
@@ -317,6 +327,12 @@ class ReminderSettingsScreen extends StatelessWidget {
             subtitle: const Text('按手上的课表排未来两周，每次开 App 重排'),
             details: Text('${controller.reminders.length} 条'),
           ),
+          // 勿扰豁免已拿到的正反馈：让用户确认「响铃」这事已经办妥了。
+          if (controller.ringSupported && controller.dndAccess == true)
+            FTile(
+              title: const Text('响铃'),
+              subtitle: const Text('已允许勿扰打扰，静音/勿扰下提醒照常响铃'),
+            ),
           if (next != null)
             FTile(
               title: const Text('最近一条'),

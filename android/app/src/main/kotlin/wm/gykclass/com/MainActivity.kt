@@ -1,5 +1,6 @@
 package wm.gykclass.com
 
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
@@ -15,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val keepAliveChannel = "keep_alive"
     private val widgetChannel = "next_class_widget"
+    private val ringChannel = "reminder_ring"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +68,19 @@ class MainActivity : FlutterActivity() {
                             result.success(false)
                         }
                     }
+                    else -> result.notImplemented()
+                }
+            }
+        // 上课提醒的「响铃」：勿扰豁免（通知策略访问）权限的查询与授权入口。
+        // 拿到授权后，提醒渠道按「闹钟」类别发（见 class_notifier_io.dart），
+        // 勿扰模式的默认例外规则就会放行提醒的铃声。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ringChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isDndAccessGranted" ->
+                        result.success(isDndAccessGranted())
+                    "openDndAccessSettings" ->
+                        result.success(openDndAccessSettings())
                     else -> result.notImplemented()
                 }
             }
@@ -124,6 +139,24 @@ class MainActivity : FlutterActivity() {
     private fun openUrl(url: String): Boolean =
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            true
+        } catch (error: Exception) {
+            false
+        }
+
+    /** 有没有拿到「勿扰打扰」（通知策略访问）授权；拿不到 NotificationManager 算没有。 */
+    private fun isDndAccessGranted(): Boolean =
+        try {
+            (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)
+                ?.isNotificationPolicyAccessGranted ?: false
+        } catch (error: Exception) {
+            false
+        }
+
+    /** 跳去系统的「勿扰打扰」授权列表（用户在列表里找到本应用放行）。 */
+    private fun openDndAccessSettings(): Boolean =
+        try {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
             true
         } catch (error: Exception) {
             false

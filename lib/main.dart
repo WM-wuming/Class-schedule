@@ -10,6 +10,7 @@ import 'data/jw_client.dart';
 import 'data/jw_http.dart';
 import 'data/keep_alive_platform.dart';
 import 'data/keep_alive_store.dart';
+import 'data/reminder_ring_platform.dart';
 import 'data/reminder_store.dart';
 import 'data/timetable_cache.dart';
 import 'data/widget_updater.dart';
@@ -81,6 +82,7 @@ class ClassScheduleApp extends StatefulWidget {
     this.restoredCustomCourses,
     this.keepAliveStore,
     this.keepAlivePlatform,
+    this.ringPlatform,
     this.restoredKeepAlive,
     this.widgetUpdater,
     this.timetableCacheStore,
@@ -124,6 +126,9 @@ class ClassScheduleApp extends StatefulWidget {
   /// 保活要碰系统的口子；null 时按当前平台建（测试里必须传假的）。
   final KeepAlivePlatform? keepAlivePlatform;
 
+  /// 提醒「响铃」（勿扰豁免）要碰系统的口子；null 时按当前平台建（测试里必须传假的）。
+  final ReminderRingPlatform? ringPlatform;
+
   /// 启动时已经从本机读到的保活设置（没存过就传 null，用默认值）。
   final KeepAliveSettings? restoredKeepAlive;
 
@@ -159,6 +164,7 @@ class _ClassScheduleAppState extends State<ClassScheduleApp> {
     restoredCustomCourses: widget.restoredCustomCourses,
     keepAliveStore: widget.keepAliveStore,
     keepAlivePlatform: widget.keepAlivePlatform,
+    ringPlatform: widget.ringPlatform,
     restoredKeepAlive: widget.restoredKeepAlive,
     widgetUpdater: widget.widgetUpdater,
     timetableCacheStore: widget.timetableCacheStore,

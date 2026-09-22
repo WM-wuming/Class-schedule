@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <!-- 重启后已排的提醒要重新登记，否则关机一次就全丢了。 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- 上课提醒的「响铃」：勿扰豁免（通知策略访问）。声明这条权限后，
+         App 才会出现在系统的「勿扰打扰」授权列表里；拿到授权 + 提醒渠道按
+         闹钟类别发，勿扰/静音下提醒也照常响铃。运行时引导见 reminder_ring_platform.dart。 -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY"/>
     <!-- 「保活」指引：弹系统的「允许忽略电池优化」确认框需要这条权限
          （只是让系统弹框，是否放行仍由用户决定）。 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
