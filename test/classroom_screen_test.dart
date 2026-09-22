@@ -108,6 +108,34 @@ void main() {
     }
   });
 
+  testWidgets('图例与搜索框固定在列表外，滚动教室列表时仍然可见', (WidgetTester tester) async {
+    // 往夹具里塞 30 间空教室：列表内容高过视口，能真的滚起来。
+    final String manyRooms = fixtureClassroomHtml.replaceFirst(
+      '</table>',
+      '${<String>[
+        for (var i = 1; i <= 30; i++)
+          '<tr><td>J1-${200 + i}</td><td>60</td>'
+          '<td></td><td></td><td></td><td></td><td></td><td></td></tr>',
+      ].join()}</table>',
+    );
+    await openClassroom(tester, RecordingTransport(classroomHtml: manyRooms));
+
+    final double legendTopBefore = tester.getRect(find.text('上午')).top;
+
+    await tester.drag(find.byType(ListView), const Offset(0, -800));
+    await tester.pumpAndSettle();
+
+    // 顶部的教室确实滚出了屏幕。
+    expect(find.text('J1-201'), findsNothing, reason: '列表要真的滚动起来');
+    // 图例与搜索框原位不动 —— 固定在列表外，不随内容滚走。
+    expect(tester.getRect(find.text('上午')).top, legendTopBefore,
+        reason: '图例固定时纵坐标不应变化');
+    expect(find.text('空闲'), findsOneWidget);
+    expect(find.text('占用'), findsOneWidget);
+    expect(find.text('下午'), findsOneWidget);
+    expect(find.text('晚上'), findsOneWidget);
+  });
+
   testWidgets('点教室打开详情，按节次列出上课班级', (WidgetTester tester) async {
     await openClassroom(tester);
 

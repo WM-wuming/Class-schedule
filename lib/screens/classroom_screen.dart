@@ -140,8 +140,8 @@ class _ClassroomScreenState extends State<ClassroomScreen> {
             query: controller.classroomQuery,
             board: board,
           ),
-          // 固定在蓝色头部下方：搜索框 + 统计行。不放进 ListView，
-          // 键盘弹出/列表滚动都不影响输入框的焦点与命中。
+          // 固定在蓝色头部下方：搜索框 + 统计行 + 空闲/占用图例。不放进 ListView，
+          // 键盘弹出/列表滚动都不影响输入框的焦点与命中，图例滚动时也一直可见。
           ColoredBox(
             color: GridColors.page,
             child: Padding(
@@ -156,6 +156,11 @@ class _ClassroomScreenState extends State<ClassroomScreen> {
                     // 统计行（共 X 间 · 全天空闲 Y 间）挪到搜索框正下方。
                     _SummaryRow(board: board),
                   ],
+                  const SizedBox(height: 10),
+                  // 空闲/占用 + 上午/下午/晚上图例：与搜索框一起固定在列表外，
+                  // 滚动教室列表时仍然可见。水平同样走 16 外边距 ——
+                  // 「标签槽右缘 = 卡片占用条右缘」的对位关系不变（见 _LegendBar 注释）。
+                  _LegendBar(columns: columns),
                 ],
               ),
             ),
@@ -166,8 +171,6 @@ class _ClassroomScreenState extends State<ClassroomScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
                 children: <Widget>[
-                  _LegendBar(columns: columns),
-                  const SizedBox(height: 10),
                   if (controller.classroomLoading && board == null)
                     const _LoadingCard()
                   else if (controller.classroomError != null)
@@ -494,6 +497,9 @@ class _HeaderChip extends StatelessWidget {
 }
 
 /// 图例：绿 = 空闲、红 = 占用；右侧是占用条的三个分组。
+///
+/// 它**固定在搜索框下方、教室列表外**（不随列表滚动），水平方向仍与
+/// 教室卡片走同一套 16 外边距。
 ///
 /// 右侧的「上午 / 下午 / 晚上」标签按下面教室卡片里**占用条的实际布局**
 /// （每根 7 宽、组内间距 3、组间 10）摆位 —— 每个标签占一个组宽的槽位居中，
