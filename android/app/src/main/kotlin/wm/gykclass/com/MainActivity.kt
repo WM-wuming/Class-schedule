@@ -40,6 +40,8 @@ class MainActivity : FlutterActivity() {
                         result.success(requestIgnoreBatteryOptimizations())
                     "openBatteryOptimizationSettings" ->
                         result.success(openBatteryOptimizationSettings())
+                    "openBatterySaverSettings" ->
+                        result.success(openBatterySaverSettings())
                     "openAutoStartSettings" ->
                         result.success(openAutoStartSettings())
                     "openAppDetailsSettings" ->
@@ -124,6 +126,15 @@ class MainActivity : FlutterActivity() {
             false
         }
 
+    /** 打开系统的「省电模式」设置页；低电量自动省电的机型会连白名单里的闹钟一起拦。 */
+    private fun openBatterySaverSettings(): Boolean =
+        try {
+            startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+            true
+        } catch (error: Exception) {
+            false
+        }
+
     private fun openAppDetailsSettings(): Boolean =
         try {
             startActivity(
@@ -182,6 +193,15 @@ class MainActivity : FlutterActivity() {
                 "com.huawei.systemmanager",
                 "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity"
             ),
+            // 荣耀 HONOR（独立后系统管家包名换成 hihonor，Magic OS 自带自启动管理）
+            ComponentName(
+                "com.hihonor.systemmanager",
+                "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+            ),
+            ComponentName(
+                "com.hihonor.systemmanager",
+                "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity"
+            ),
             // OPPO ColorOS
             ComponentName(
                 "com.coloros.safecenter",
@@ -191,10 +211,20 @@ class MainActivity : FlutterActivity() {
                 "com.oppo.safe",
                 "com.oppo.safe.permission.startup.StartupAppListActivity"
             ),
+            // OPPO / 一加 / realme 新版 ColorOS（oplus 系包名）
+            ComponentName(
+                "com.oplus.safecenter",
+                "com.oplus.safecenter.permission.startup.StartupAppListActivity"
+            ),
             // vivo OriginOS / FuntouchOS
             ComponentName(
                 "com.vivo.permissionmanager",
                 "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+            ),
+            // vivo / iQOO 的 i 管家（旧版包名）
+            ComponentName(
+                "com.iqoo.secure",
+                "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"
             ),
             // 三星 One UI
             ComponentName(

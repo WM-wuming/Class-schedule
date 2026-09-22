@@ -21,6 +21,12 @@ abstract interface class KeepAlivePlatform {
   /// 打开电池优化列表页（用户手动找本应用放行用）。
   Future<bool> openBatteryOptimizationSettings();
 
+  /// 打开系统的「省电模式」设置页。
+  ///
+  /// 低电量自动开启省电模式的机型（低端机尤其常见）会连白名单里的闹钟一起拦，
+  /// 所以指引里要有这一步：让用户关掉省电模式或允许本应用后台运行。
+  Future<bool> openBatterySaverSettings();
+
   /// 尝试打开「自启动管理」页。
   ///
   /// 国产 ROM（小米/华为/OPPO/vivo 等）的自启动管理没有标准入口，

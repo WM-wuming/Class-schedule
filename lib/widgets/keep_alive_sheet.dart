@@ -114,7 +114,23 @@ class _KeepAliveGuideSheet extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                   ],
-                  _GroupLabel('第三步 · 锁定后台（可选）'),
+                  _GroupLabel('第三步 · 关掉省电模式'),
+                  const _GuideCard(<String>[
+                    '低电量自动开启省电模式的机型（低端机尤其常见），即使白名单放行也会连闹钟一起拦。',
+                    '关掉省电模式 / 超级省电，或在省电设置里允许本应用后台运行。',
+                  ]),
+                  const SizedBox(height: 10),
+                  if (controller.keepAliveSupported) ...<Widget>[
+                    _ActionRow(
+                      label: '打开省电模式设置',
+                      icon: FLucideIcons.batteryLow,
+                      onTap: () => unawaited(
+                        controller.openBatterySaverSettings(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  _GroupLabel('第四步 · 锁定后台（可选）'),
                   const _GuideCard(<String>[
                     '打开最近任务（多任务）卡片，下拉本应用卡片出现锁图标即已锁定。',
                     '再在系统的通知设置里确认「上课提醒」渠道没有被静音或关闭。',

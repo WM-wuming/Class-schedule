@@ -849,6 +849,7 @@ class FakeKeepAlivePlatform implements KeepAlivePlatform {
   /// 各跳转入口被点的次数。
   int autoStartOpens = 0;
   int batteryListOpens = 0;
+  int batterySaverOpens = 0;
   int appDetailsOpens = 0;
 
   /// 通过 openUrl 打开过的链接（按调用顺序）。
@@ -870,6 +871,12 @@ class FakeKeepAlivePlatform implements KeepAlivePlatform {
   @override
   Future<bool> openBatteryOptimizationSettings() async {
     batteryListOpens += 1;
+    return true;
+  }
+
+  @override
+  Future<bool> openBatterySaverSettings() async {
+    batterySaverOpens += 1;
     return true;
   }
 

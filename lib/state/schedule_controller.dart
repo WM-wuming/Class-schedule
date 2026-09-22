@@ -1027,6 +1027,10 @@ class ScheduleController extends ChangeNotifier {
   Future<bool> openBatteryOptimizationSettings() =>
       _keepAlivePlatform.openBatteryOptimizationSettings();
 
+  /// 打开系统的「省电模式」设置页（低电量自动省电的机型会拦白名单里的闹钟）。
+  Future<bool> openBatterySaverSettings() =>
+      _keepAlivePlatform.openBatterySaverSettings();
+
   /// 尝试打开「自启动管理」页；国产 ROM 逐个试已知入口，失败退回应用详情页。
   Future<bool> openAutoStartSettings() =>
       _keepAlivePlatform.openAutoStartSettings();

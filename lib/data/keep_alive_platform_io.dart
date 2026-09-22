@@ -40,6 +40,10 @@ class MethodChannelKeepAlivePlatform implements KeepAlivePlatform {
       await _invoke<bool>('openBatteryOptimizationSettings') ?? false;
 
   @override
+  Future<bool> openBatterySaverSettings() async =>
+      await _invoke<bool>('openBatterySaverSettings') ?? false;
+
+  @override
   Future<bool> openAutoStartSettings() async =>
       await _invoke<bool>('openAutoStartSettings') ?? false;
 

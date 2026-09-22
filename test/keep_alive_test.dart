@@ -262,6 +262,15 @@ void main() {
       await tester.tap(find.text('去自启动设置'));
       await tester.pumpAndSettle();
       expect(platform.autoStartOpens, 1);
+
+      // 省电模式引导（低电量自动省电的机型会拦白名单里的闹钟）。
+      // 用精确匹配：引导卡正文里也有「关掉省电模式」四个字，textContaining 会撞车。
+      expect(find.text('第三步 · 关掉省电模式'), findsOneWidget);
+      await tester.ensureVisible(find.text('打开省电模式设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('打开省电模式设置'));
+      await tester.pumpAndSettle();
+      expect(platform.batterySaverOpens, 1);
     });
 
     testWidgets('保活弹层有白色 Material 底（forui 弹层不自带背景）', (

@@ -22,6 +22,9 @@ class _UnsupportedKeepAlivePlatform implements KeepAlivePlatform {
   Future<bool> openBatteryOptimizationSettings() async => false;
 
   @override
+  Future<bool> openBatterySaverSettings() async => false;
+
+  @override
   Future<bool> openAutoStartSettings() async => false;
 
   @override
