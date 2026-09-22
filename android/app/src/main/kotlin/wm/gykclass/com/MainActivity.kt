@@ -226,6 +226,11 @@ class MainActivity : FlutterActivity() {
                 "com.iqoo.secure",
                 "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"
             ),
+            // 一加（老 OxygenOS 的安全中心，自启动 = 按需启动管理）
+            ComponentName(
+                "com.oneplus.security",
+                "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"
+            ),
             // 三星 One UI
             ComponentName(
                 "com.samsung.android.lool",
@@ -245,6 +250,28 @@ class MainActivity : FlutterActivity() {
                 return true
             } catch (error: Exception) {
                 // 这台机器上没有这个入口，试下一个。
+            }
+        }
+        // 上面按 Activity 直达的候选全部未命中（新版 ColorOS 常年换包名/类名），
+        // 退而求其次：直接拉起手机管家 / 安全中心 app 本身 —— 自启动管理藏在
+        // 「手机管家 → 权限与隐私 → 自启动管理」，拉起管家比落应用详情页近得多。
+        val managerPackages = listOf(
+            "com.coloros.safecenter",
+            "com.oplus.safecenter",
+            "com.oneplus.security",
+            "com.realme.securitycheck",
+            "com.coloros.phonemanager"
+        )
+        for (pkg in managerPackages) {
+            try {
+                val launch = packageManager.getLaunchIntentForPackage(pkg)
+                if (launch != null) {
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(launch)
+                    return true
+                }
+            } catch (error: Exception) {
+                // 没装这个管家，试下一个。
             }
         }
         return openAppDetailsSettings()

@@ -307,8 +307,9 @@ class ReminderSettingsScreen extends StatelessWidget {
         if (controller.ringSupported && controller.dndAccess == false) ...<Widget>[
           const SizedBox(height: 8),
           _NoticeCard(
-            message: '手机开着勿扰或静音时，提醒不会响铃。点「去授权」，'
-                '在打开的列表里找到广应科课表并勾选允许。',
+            message: '手机开着勿扰或静音时，提醒不会响铃。点「去授权」后：'
+                '在勿扰设置里点「允许例外」→ 勾选广应科课表；'
+                '找不到就到系统设置搜「勿扰访问」，允许本应用。',
             actionLabel: '去授权',
             onAction: () => unawaited(controller.openRingSettings()),
           ),
