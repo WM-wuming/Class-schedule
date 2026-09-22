@@ -354,6 +354,12 @@ class ScheduleController extends ChangeNotifier {
   /// 自动登录最多尝试几次（每次都换新验证码重新识别）。
   static const int _autoLoginMaxAttempts = 3;
 
+  /// 本次进程是否已经试过「会话失效后静默自动重登」。
+  ///
+  /// 只试一次：失败就安静停手交给用户手动登录，避免会话真挂了时
+  /// 每次校准周次都撞一次墙、白耗流量还可能触发教务系统的风控。
+  bool _autoReloginAttempted = false;
+
   /// 教务系统客户端（设置页展示状态用）。
   JwTimetableClient get client => _client;
 
@@ -1312,8 +1318,42 @@ class ScheduleController extends ChangeNotifier {
     } on JwException catch (error) {
       _weekInfoError = error.message;
       notifyListeners();
+      // 冷启动恢复的 Cookie 可能已被服务端作废（App 被杀后无人续会话）。
+      // 存过密码就静默重登一次，成功后下面清掉错误条，用户全程无感。
+      unawaited(_autoReloginIfExpired(error.message));
     } catch (error) {
       _weekInfoError = '读取教务系统周次失败：$error';
+      notifyListeners();
+    }
+  }
+
+  /// 会话失效时用本机存过的账号密码静默重登一次。
+  ///
+  /// 只在满足全部条件时触发：失效原因确实是「要登录」（[reason] 含「会话已失效」
+  /// 或「请先登录」，网络故障不在此列）、用户勾过「记住密码」（[_savedPassword]
+  /// 非空 —— 没存过密码我们无从代填）、本次进程还没试过。失败就安静停手，
+  /// 交给用户手动登录。
+  ///
+  /// 冷启动时验证码还没取过，而自动登录依赖「已取图 + 后台识别」的闭环，
+  /// 所以先静默取一张图（取到即自动识别）。之后 [submitLogin] 的正常收尾会
+  /// 自动接管：采用新主页、清掉旧会话的内存课表、按新会话重拉当前周与整学期、
+  /// 落盘新 Cookie —— 这里只需把上面挂出的失效提示撤掉，别让它挂在课表页上。
+  Future<void> _autoReloginIfExpired(String reason) async {
+    if (_autoReloginAttempted ||
+        _savedAccountNumber.isEmpty ||
+        _savedPassword.isEmpty ||
+        !(reason.contains('会话已失效') || reason.contains('请先登录'))) {
+      return;
+    }
+    _autoReloginAttempted = true;
+    await _fetchCaptcha();
+    final bool ok = await autoLoginWithCaptcha(
+      account: _savedAccountNumber,
+      password: _savedPassword,
+      rememberPassword: true,
+    );
+    if (ok && _weekInfoError != null) {
+      _weekInfoError = null;
       notifyListeners();
     }
   }

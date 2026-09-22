@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:class_schedule/data/jw_account_store.dart';
 import 'package:class_schedule/data/jw_client.dart';
 import 'package:class_schedule/data/jw_http.dart';
@@ -474,6 +476,118 @@ void main() {
     });
   });
 
+  group('会话失效后的静默自动重登', () {
+    /// 本机存过密码的账户（冷启动恢复用，模拟用户勾过「记住密码」）。
+    const JwStoredAccount remembered = JwStoredAccount(
+      cookie: 'JSESSIONID=stale',
+      account: '202600000001',
+      password: 'ab>',
+    );
+
+    /// 轮询等待条件成立（自动重登是一条后台链，没法一口气 await 到头）。
+    Future<void> waitUntil(bool Function() ready) async {
+      final Stopwatch watch = Stopwatch()..start();
+      while (!ready() && watch.elapsed < const Duration(seconds: 5)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+
+    test('后台被杀后恢复的会话已失效：存过密码就静默重登，成功后撤掉报错', () async {
+      var loggedIn = false;
+      final FakeLoginTransport login = FakeLoginTransport();
+      final FakeCaptchaRecognizer recognizer = FakeCaptchaRecognizer(
+        const <String>['A1B2'],
+      );
+      final FakeAccountStore store = FakeAccountStore();
+      final ScheduleController controller = ScheduleController(
+        transport: (String m, Uri u, String b, Map<String, String> h) async {
+          if (!u.path.contains('xsMain')) {
+            return fixtureHtml;
+          }
+          // 重登成功前主页面被打回登录页（会话失效），成功后恢复正常。
+          return loggedIn
+              ? fixtureWeekInfoHtmlToday
+              : '<html><head><title>用户登录</title></head></html>';
+        },
+        detailedTransport: (
+          String m,
+          Uri u,
+          String b,
+          Map<String, String> h,
+        ) async {
+          final JwHttpResponse response = await login.call(m, u, b, h);
+          if (!u.path.contains('verifycode')) {
+            loggedIn = true;
+          }
+          return response;
+        },
+        accountStore: store,
+        restoredAccount: remembered,
+        captchaRecognizer: recognizer,
+        swipeDebounce: Duration.zero,
+      );
+
+      // 启动校准主页面 → 会话失效 → 后台自动重登，逐段轮询等它走完。
+      await waitUntil(() => login.loginCalls > 0);
+      await waitUntil(
+        () => store.value?.cookie.contains('JSESSIONID=after-login') ?? false,
+      );
+      await waitUntil(() => controller.weekInfoError == null);
+
+      expect(login.loginCalls, 1, reason: '只静默提交一次，不反复撞墙');
+      expect(recognizer.calls, greaterThanOrEqualTo(1));
+      expect(controller.weekInfoError, isNull, reason: '重登成功后失效提示要撤掉');
+      expect(controller.student?.name, '张三', reason: '新主页的学生信息要采纳');
+      expect(
+        store.value?.cookie,
+        contains('JSESSIONID=after-login'),
+        reason: '新会话要落盘，下次冷启动用的才是活会话',
+      );
+      expect(controller.savedPassword, 'ab>', reason: '代填过的密码不能丢');
+      controller.dispose();
+    });
+
+    test('没存过密码时不自动重登：失效提示留给用户手动登录', () async {
+      final FakeLoginTransport login = FakeLoginTransport();
+      final FakeCaptchaRecognizer recognizer = FakeCaptchaRecognizer(
+        const <String>['A1B2'],
+      );
+      final ScheduleController controller = ScheduleController(
+        transport: jwExpiredTransport,
+        accountStore: FakeAccountStore(storedAccount),
+        restoredAccount: storedAccount,
+        captchaRecognizer: recognizer,
+        swipeDebounce: Duration.zero,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(login.loginCalls, 0, reason: '没有密码可代填，不该发起登录');
+      expect(login.captchaCalls, 0, reason: '连验证码都不必取');
+      expect(controller.weekInfoError, isNotNull, reason: '失效提示要留给用户看');
+      controller.dispose();
+    });
+
+    test('网络故障不算会话失效：不发起自动重登', () async {
+      final FakeLoginTransport login = FakeLoginTransport();
+      final RecordingTransport transport = RecordingTransport(
+        weekInfoError: const SocketException('网络挂了'),
+      );
+      final ScheduleController controller = ScheduleController(
+        transport: transport.call,
+        detailedTransport: login.call,
+        accountStore: FakeAccountStore(remembered),
+        restoredAccount: remembered,
+        captchaRecognizer: FakeCaptchaRecognizer(const <String>['A1B2']),
+        swipeDebounce: Duration.zero,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(login.loginCalls, 0, reason: '网络挂时重登也不会成功，别白费劲');
+      expect(controller.weekInfoError, isNotNull);
+      controller.dispose();
+    });
+  });
+
   group('「我的信息」页里的账户入口', () {
     testWidgets('本机存过账号时才有「退出登录」', (WidgetTester tester) async {
       await tester.pumpWidget(jwApp(transport: jwExpiredTransport));
@@ -569,7 +683,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('广应科课表'), findsOneWidget);
-      expect(find.textContaining('版本 1.1.42'), findsOneWidget);
+      expect(find.textContaining('版本 1.1.43'), findsOneWidget);
       expect(
         find.text('https://github.com/WM-wuming/Class-schedule'),
         findsOneWidget,
