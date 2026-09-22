@@ -29,12 +29,7 @@ JwTransport loggedInMainTransport(List<bool> loggedIn) =>
 JwDetailedTransport togglingLoginTransport(
   FakeLoginTransport login,
   List<bool> loggedIn,
-) => (
-  String m,
-  Uri u,
-  String b,
-  Map<String, String> h,
-) async {
+) => (String m, Uri u, String b, Map<String, String> h) async {
   final JwHttpResponse response = await login.call(m, u, b, h);
   // 只看登录提交（POST）；预热 GET 的合成页也会经过这里，不能把开关打开。
   if (m == 'POST' &&
@@ -138,9 +133,11 @@ void main() {
         transport: jwExpiredTransport,
         detailedTransport: login.call,
         accountStore: FakeAccountStore(),
-        captchaRecognizer: FakeCaptchaRecognizer(
-          <String>['1111', '2222', '3333'],
-        ),
+        captchaRecognizer: FakeCaptchaRecognizer(<String>[
+          '1111',
+          '2222',
+          '3333',
+        ]),
         swipeDebounce: Duration.zero,
       );
       addTearDown(controller.dispose);
@@ -182,7 +179,7 @@ void main() {
     });
   });
 
-  group('登录页的自动填入与自动提交', () {
+  group('登录页的无感验证码', () {
     Future<void> openLogin(WidgetTester tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 3;
@@ -202,9 +199,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('识别结果自动填进验证码框；账号密码齐了自动提交并返回', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('验证码不显示、填完信息也不自动提交；点登录后后台识别提交成功', (WidgetTester tester) async {
       final List<bool> loggedIn = <bool>[false];
       final FakeLoginTransport login = FakeLoginTransport();
       tester.view.physicalSize = const Size(1080, 2400);
@@ -225,14 +220,19 @@ void main() {
       await tester.tap(find.text('登录教务系统'));
       await tester.pumpAndSettle();
 
-      // 识别结果自动填入验证码框；账号密码还没敲，不该自动提交。
-      expect(find.text('ab12'), findsOneWidget);
+      // 验证码整个隐藏：识别在后台跑，页面上没有验证码输入框。
+      expect(find.text('验证码'), findsNothing);
       expect(login.loginCalls, 0);
 
-      // 敲完账号密码 → 自动提交 → 成功后自动返回上一页。
       await tester.enterText(find.byType(EditableText).at(0), 'student');
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(EditableText).at(1), 'ab>');
+      await tester.pumpAndSettle();
+
+      // 识别结果就算已经就绪也不自动提交 —— 提交只发生在点「登录」时。
+      expect(login.loginCalls, 0, reason: '不自动提交，等用户点登录');
+
+      await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
 
       expect(login.loginCalls, 1);
@@ -242,18 +242,25 @@ void main() {
       expect(find.text('学号 / 账号'), findsNothing);
     });
 
-    testWidgets('识别不出时验证码框留空，也不自动提交', (WidgetTester tester) async {
+    testWidgets('识别不出时点登录亮出验证码兜底，框里留空等手输', (WidgetTester tester) async {
       final FakeLoginTransport login = FakeLoginTransport();
       await openLogin(tester);
 
-      // 没有识别结果：敲完账号密码也不会自动提交。
-      expect(find.text('学号 / 账号'), findsOneWidget);
       await tester.enterText(find.byType(EditableText).at(0), 'student');
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(EditableText).at(1), 'ab>');
       await tester.pumpAndSettle();
 
-      expect(login.loginCalls, 0, reason: '识别不出就不自动提交，交给用户手动');
+      await tester.tap(find.text('登录'));
+      await tester.pumpAndSettle();
+
+      expect(login.loginCalls, 0, reason: '识别不出就不交空表单');
+      expect(find.text('验证码'), findsOneWidget, reason: '兜底：验证码区自己出现');
+      // 没有识别结果：框是空的等手输，而不是填了什么。
+      final EditableText captchaField = tester.widget<EditableText>(
+        find.byType(EditableText).at(2),
+      );
+      expect(captchaField.controller.text, isEmpty);
     });
   });
 }
