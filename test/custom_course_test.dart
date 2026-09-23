@@ -533,7 +533,10 @@ void main() {
       }
 
       // 选「周三」：弹层关掉，行值更新。
-      await tester.tap(find.text('周三'));
+      // 注意取 .last：表单星期行的默认值是「今天」——测试恰好在周三跑时行值
+      // 也是「周三」，和弹层选项重名；弹层选项在组件树上更靠后，last 才是它。
+      // （CI 曾因此固定在周三红：find.text('周三') 撞出两个、tap 拒绝歧义目标。）
+      await tester.tap(find.text('周三').last);
       await tester.pumpAndSettle();
 
       expect(find.text('周三'), findsOneWidget);
