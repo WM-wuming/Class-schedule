@@ -165,6 +165,15 @@ String? get _desktopFontFamily {
   };
 }
 
+/// forui 组件默认字体是 Inter（没有中文字形），桌面上中文回退系统字体，
+/// 与拉丁字符混排风格不统一 —— 桌面端统一注入雅黑/Noto。
+FTypography? _desktopTypography() {
+  final String? family = _desktopFontFamily;
+  if (family == null) return null;
+  final FTypeface typeface = FTypeface(fontFamily: family);
+  return FTypography(display: typeface, body: typeface);
+}
+
 class _ClassScheduleAppState extends State<ClassScheduleApp> {
   late final ScheduleController _controller = ScheduleController(
     transport: widget.transport,
@@ -194,9 +203,7 @@ class _ClassScheduleAppState extends State<ClassScheduleApp> {
     touch: true,
     // forui 组件默认字体是 Inter（没有中文字形），桌面上中文回退系统字体，
     // 与拉丁字符混排风格不统一 —— 桌面端统一注入雅黑/Noto。
-    typography: _desktopFontFamily == null
-        ? null
-        : FTypography(fontFamily: _desktopFontFamily!),
+    typography: _desktopTypography(),
   );
 
   @override
