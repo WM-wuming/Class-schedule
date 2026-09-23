@@ -933,6 +933,11 @@ class ScheduleController extends ChangeNotifier {
   }
 
   /// 用户手动打开提醒开关时调用：申请权限，拿到就立刻排期。
+  ///
+  /// 通知权限拿到后**顺手把「响铃」也办成默认**：先刷新一遍勿扰豁免状态，
+  /// 确认还没授权就直接带用户去开「允许勿扰打扰」（落在「上课提醒」通知渠道页，
+  /// 见 [openRingSettings]）。这是跳系统页面不是弹窗，用户随时可以退回来；
+  /// 已授权或查不到状态（null，按未知处理）就不打扰。
   Future<bool> requestReminderPermission() async {
     if (!_notifier.isSupported) {
       return false;
@@ -947,6 +952,13 @@ class ScheduleController extends ChangeNotifier {
     notifyListeners();
     if (granted) {
       await _syncReminders();
+      if (_ringPlatform.isSupported) {
+        // 之前查到的状态可能过期（用户中途去系统里开过关了），先刷新再判断。
+        await refreshRingStatus();
+        if (_dndAccess == false) {
+          await _ringPlatform.openDndAccessSettings();
+        }
+      }
     }
     return granted;
   }

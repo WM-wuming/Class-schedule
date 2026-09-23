@@ -431,6 +431,66 @@ void main() {
       controller.dispose();
     });
 
+    test('拿到通知权限后顺手带去开响铃（响铃默认化）', () async {
+      final FakeReminderNotifier notifier = FakeReminderNotifier(
+        granted: false,
+      );
+      final FakeReminderRingPlatform ring = FakeReminderRingPlatform(
+        granted: false,
+      );
+      final ScheduleController controller = await boot(
+        notifier: notifier,
+        ring: ring,
+        restored: const ClassReminderSettings(enabled: false),
+      );
+
+      notifier.granted = true;
+      await controller.updateReminderSettings(
+        const ClassReminderSettings(enabled: true),
+      );
+      await controller.requestReminderPermission();
+
+      expect(
+        ring.openSettingsCalls,
+        1,
+        reason: '还没拿到勿扰豁免就带用户去开「允许勿扰打扰」',
+      );
+      controller.dispose();
+    });
+
+    test('响铃已授权时申请权限不再跳设置', () async {
+      final FakeReminderRingPlatform ring = FakeReminderRingPlatform(
+        granted: true,
+      );
+      final ScheduleController controller = await boot(
+        notifier: FakeReminderNotifier(granted: false),
+        ring: ring,
+        restored: const ClassReminderSettings(enabled: false),
+      );
+
+      await controller.requestReminderPermission();
+
+      expect(ring.openSettingsCalls, 0);
+      controller.dispose();
+    });
+
+    test('权限被拒时不去跳响铃设置', () async {
+      final FakeReminderRingPlatform ring = FakeReminderRingPlatform(
+        granted: false,
+      );
+      final ScheduleController controller = await boot(
+        notifier: FakeReminderNotifier(granted: false),
+        ring: ring,
+        restored: const ClassReminderSettings(enabled: false),
+      );
+
+      await controller.requestReminderPermission();
+
+      expect(controller.reminderPermissionGranted, isFalse);
+      expect(ring.openSettingsCalls, 0);
+      controller.dispose();
+    });
+
     test('权限被拒时提醒照样排，只是界面要提示去放行', () async {
       final FakeReminderNotifier notifier = FakeReminderNotifier(
         granted: false,
