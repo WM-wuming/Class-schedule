@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
@@ -151,6 +152,19 @@ class ClassScheduleApp extends StatefulWidget {
   State<ClassScheduleApp> createState() => _ClassScheduleAppState();
 }
 
+/// 桌面端的全局字体：
+/// Windows 上 Flutter 默认拉丁/数字用 Segoe UI、中文回退微软雅黑，混排时风格不统一，
+/// 全局固定成微软雅黑；Linux 固定 Noto Sans CJK SC。移动端与 Web 用系统默认
+/// （Android Roboto / iOS、macOS 苹方），不做干预。
+String? get _desktopFontFamily {
+  if (kIsWeb) return null;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.windows => 'Microsoft YaHei UI',
+    TargetPlatform.linux => 'Noto Sans CJK SC',
+    _ => null,
+  };
+}
+
 class _ClassScheduleAppState extends State<ClassScheduleApp> {
   late final ScheduleController _controller = ScheduleController(
     transport: widget.transport,
@@ -178,6 +192,11 @@ class _ClassScheduleAppState extends State<ClassScheduleApp> {
     // 用 copyWith 把主色换成与课程表一致的蓝色。
     colors: FColors.neutralLight.copyWith(primary: const Color(0xFF2C63D4)),
     touch: true,
+    // forui 组件默认字体是 Inter（没有中文字形），桌面上中文回退系统字体，
+    // 与拉丁字符混排风格不统一 —— 桌面端统一注入雅黑/Noto。
+    typography: _desktopFontFamily == null
+        ? null
+        : FTypography(fontFamily: _desktopFontFamily!),
   );
 
   @override
@@ -192,6 +211,9 @@ class _ClassScheduleAppState extends State<ClassScheduleApp> {
     child: MaterialApp(
       title: '广应科课表',
       debugShowCheckedModeBanner: false,
+      // 全局字体注入点：TextTheme 全量带上 fontFamily，业务里所有未显式指定
+      // 字体的 TextStyle（含 forui 组件）都会继承到这里。
+      theme: ThemeData(fontFamily: _desktopFontFamily),
       localizationsDelegates: FLocalizations.localizationsDelegates,
       supportedLocales: const <Locale>[Locale('zh'), Locale('en')],
       builder: (BuildContext context, Widget? child) =>

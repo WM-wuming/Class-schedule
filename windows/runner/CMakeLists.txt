@@ -20,6 +20,10 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+# 源码（main.cpp / Runner.rc）含中文一律按 UTF-8 解读，否则 MSVC 用系统码页（GBK）
+# 读 UTF-8 文件，窗口标题等中文字符串会乱码。
+target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
+
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
