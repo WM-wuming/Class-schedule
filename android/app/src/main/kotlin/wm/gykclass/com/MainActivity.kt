@@ -18,7 +18,8 @@ class MainActivity : FlutterActivity() {
     private val ringChannel = "reminder_ring"
 
     // 与 Dart 侧 class_notifier_io.dart 的 reminderChannelId 保持一致。
-    private val reminderChannelId = "class_reminder"
+    // v2：渠道属性（锁屏公开 / alarm 类别）只在首次创建生效，改属性要换 id 重建。
+    private val reminderChannelId = "class_reminder_v2"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

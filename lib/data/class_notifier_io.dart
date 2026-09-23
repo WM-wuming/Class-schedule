@@ -18,7 +18,13 @@ ClassReminderNotifier createClassReminderNotifier() =>
     FlutterClassReminderNotifier();
 
 /// Android 8+ 的通知渠道。渠道一旦创建，**重要级别就改不了了**，所以这里定好就不再变。
-const String reminderChannelId = 'class_reminder';
+///
+/// 渠道属性（重要级别、锁屏可见性、类别）都只在**首次创建时生效**，之后系统不给改。
+/// 要给老用户换新属性只能换渠道 id 让系统重建 —— v2 就是这么来的：
+/// v1 建渠道时没设「锁屏公开」，老用户升级后锁屏上默认只显示「有通知」不显示内容；
+/// 换到 v2 同时把 alarm 类别也带给老用户（v1.1.49 加的，当时对已存在的渠道同样无效）。
+const String reminderChannelId = 'class_reminder_v2';
+const String legacyReminderChannelId = 'class_reminder';
 const String reminderChannelName = '上课提醒';
 const String reminderChannelDescription = '每节课上课前提醒一次';
 
@@ -64,8 +70,25 @@ class FlutterClassReminderNotifier implements ClassReminderNotifier {
         ),
       );
       _initialized = true;
+      await _retireLegacyChannel();
     } catch (error) {
       debugPrint('初始化本地通知失败：$error');
+    }
+  }
+
+  /// 删掉 v1 渠道：换到 v2 后它不再被使用，留着会让系统设置里出现两个
+  /// 「上课提醒」条目，用户分不清该开哪个。老渠道上还有没重排的旧提醒时
+  /// （升级后还没打开过 App 的窗口期），那几条会发不出来 —— 每次开 App
+  /// 都会整体重排到 v2，最多损失升级后第一次打开前的那一条，可接受。
+  Future<void> _retireLegacyChannel() async {
+    try {
+      final AndroidFlutterLocalNotificationsPlugin? android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      await android?.deleteNotificationChannel(channelId: legacyReminderChannelId);
+    } catch (error) {
+      debugPrint('清理旧通知渠道失败：$error');
     }
   }
 
@@ -256,11 +279,16 @@ class FlutterClassReminderNotifier implements ClassReminderNotifier {
       reminderChannelName,
       channelDescription: reminderChannelDescription,
       // 上课提醒要能「弹到脸上」，不然错过一节课就没意义了。
+      // importance high 同时就是「横幅通知」（heads-up，顶部悬浮几秒）的来源：
+      // 渠道重要级别高，系统才允许横幅弹出。
       importance: Importance.high,
       priority: Priority.high,
+      // 锁屏上完整显示内容（标题 + 课程 + 教室），而不是只显示「有通知」。
+      // 渠道属性只在首次创建生效，老用户靠换渠道 id（见 reminderChannelId）重建。
+      visibility: NotificationVisibility.public,
       // 归类为「闹钟」：拿到勿扰豁免授权后（见 reminder_ring_platform.dart），
       // 勿扰模式的默认例外规则会放行闹钟类别的铃声 —— 开着勿扰提醒也响。
-      // 注意渠道属性只在首次创建时生效，老用户升级后渠道已存在、不受影响。
+      // 注意渠道属性只在首次创建时生效。
       category: AndroidNotificationCategory.alarm,
       // 同一节课的提醒只留一条，不静默累积。
       onlyAlertOnce: true,
