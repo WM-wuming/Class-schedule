@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:class_schedule/data/jw_client.dart';
 import 'package:class_schedule/data/jw_exception.dart';
 import 'package:class_schedule/models/classroom.dart';
@@ -280,6 +282,107 @@ void main() {
 
       await controller.signOut();
       expect(controller.classroomBoard, isNull);
+      controller.dispose();
+    });
+
+    test('快速连点日期：晚到的旧结果不覆盖新条件下的状态', () async {
+      final RecordingTransport transport = RecordingTransport();
+      final ScheduleController controller = ScheduleController(
+        transport: transport.call,
+        swipeDebounce: Duration.zero,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      // 两个与当前条件、彼此都不同的请求条件（避开「条件没变就不联网」的短路）。
+      final JwClassroomQuery initial = controller.classroomQuery;
+      final JwClassroomQuery queryA = initial.copyWith(
+        week: initial.week == 1 ? 2 : 1,
+        weekday: initial.weekday == 1 ? 2 : 1,
+      );
+      final JwClassroomQuery queryB = initial.copyWith(
+        week: queryA.week == 3 ? 4 : 3,
+        weekday: queryA.weekday == 5 ? 6 : 5,
+      );
+
+      // 两份响应各有一间不同名的教室，用内容区分先后两笔请求。
+      const String htmlA = '<table><tr><td>roomA</td><td></td></tr></table>';
+      const String htmlB = '<table><tr><td>roomB</td><td></td></tr></table>';
+
+      // 第一次查询被门挡住：保证它先发起、更晚返回。
+      final Completer<void> gate = Completer<void>();
+      transport.classroomGate = gate;
+      transport.classroomHtml = htmlA;
+      final Future<void> first = controller.updateClassroomQuery(queryA);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(transport.classroomBodies, hasLength(1));
+
+      // 第二次查询不被拦：换条件会顶掉在途的旧请求。
+      transport.classroomHtml = htmlB;
+      await controller.updateClassroomQuery(queryB);
+      expect(controller.classroomBoard!.classrooms.single.name, 'roomB');
+
+      // 这时旧请求才回来 —— 不能把新条件下的表盖掉。
+      gate.complete();
+      await first;
+      expect(controller.classroomBoard!.classrooms.single.name, 'roomB');
+      expect(controller.classroomQuery.sameRequestAs(queryB), isTrue);
+      controller.dispose();
+    });
+
+    test('查询条件停在今天之前时，进教室页自动拉回今天', () async {
+      final RecordingTransport transport = RecordingTransport();
+      final ScheduleController controller = ScheduleController(
+        transport: transport.call,
+        swipeDebounce: Duration.zero,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      // 把条件拨到「学期第 1 周周一」—— 夹具的学期起点（2026-08-30）远在过去。
+      await controller.updateClassroomQuery(
+        const JwClassroomQuery(week: 1, weekday: 1),
+      );
+      expect(transport.classroomBodies.last, contains('zc1=1'));
+
+      // 重新进页面：条件在今天之前 → 先拉回今天再查。
+      await controller.ensureClassroomBoard();
+
+      final DateTime now = DateTime.now();
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      final int todayWeek = controller.term.weekOf(today);
+      expect(controller.classroomQuery.week, todayWeek);
+      expect(controller.classroomQuery.weekday, today.weekday);
+      expect(transport.classroomBodies.last, contains('zc1=$todayWeek'));
+      expect(
+        transport.classroomBodies.last,
+        contains('skxq1=${today.weekday}'),
+      );
+      controller.dispose();
+    });
+
+    test('回前台时把停在昨天的教室查询拉回今天（用过教室页才管）', () async {
+      final RecordingTransport transport = RecordingTransport();
+      final ScheduleController controller = ScheduleController(
+        transport: transport.call,
+        swipeDebounce: Duration.zero,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      // 这次会话从没用过教室页：不动。
+      await controller.refreshClassroomDate();
+      expect(transport.classroomBodies, isEmpty);
+
+      // 拨到过去并查一次，再模拟回前台。
+      await controller.updateClassroomQuery(
+        const JwClassroomQuery(week: 1, weekday: 1),
+      );
+      final int calls = transport.classroomBodies.length;
+
+      await controller.refreshClassroomDate();
+      final DateTime now = DateTime.now();
+      final DateTime today = DateTime(now.year, now.month, now.day);
+      expect(controller.classroomQuery.week, controller.term.weekOf(today));
+      expect(controller.classroomQuery.weekday, today.weekday);
+      expect(transport.classroomBodies.length, calls + 1);
       controller.dispose();
     });
   });

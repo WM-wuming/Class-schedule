@@ -252,6 +252,12 @@ class ScheduleController extends ChangeNotifier {
   JwClassroomBoard? _classroomBoard;
   late JwClassroomQuery _classroomQuery;
   bool _classroomLoading = false;
+
+  /// 教室查询的请求序号：每次发起递增。
+  ///
+  /// 快速连点日期时，先发出的请求可能后返回 —— 只有**最后一次发起**的请求
+  /// 才有资格把结果写进状态，否则用户看到的就是旧日期的教室。
+  int _classroomRequestSeq = 0;
   String? _classroomError;
   JwLoginSession? _loginSession;
   Uint8List? _captchaImage;
@@ -899,6 +905,8 @@ class ScheduleController extends ChangeNotifier {
   /// 用户下次打开 App 的这个瞬间：把已经触发的提醒从待办里清掉（重排），
   /// 再把排期窗口往前延伸（[ensureReminderHorizon]）。
   Future<void> onAppResumed() async {
+    // 隔夜挂在后台的话，教室页可能还停在昨天 —— 回前台先把它拉回今天。
+    await refreshClassroomDate();
     if (!_notifier.isSupported) {
       return;
     }
@@ -1281,38 +1289,109 @@ class ScheduleController extends ChangeNotifier {
     }
   }
 
-  /// 进入「空教室」页时调用：本次会话还没查过才联网。
-  Future<void> ensureClassroomBoard() => loadClassroomBoard();
+  /// 进入「空教室」页时调用：先把可能停在昨天的条件拉回今天，再保证查过一次。
+  Future<void> ensureClassroomBoard() async {
+    final bool moved = _clampClassroomQueryToToday();
+    if (moved) {
+      _classroomBoard = null;
+      _classroomError = null;
+      notifyListeners();
+    }
+    await loadClassroomBoard(force: moved);
+  }
+
+  /// App 回到前台时调用：应用隔夜挂在后台后，教室页可能还停在昨天。
+  ///
+  /// 只在这次会话用过教室页时才处理；条件真的往后挪了就清掉旧结果重新查。
+  Future<void> refreshClassroomDate() async {
+    if (_classroomBoard == null && !_classroomLoading) {
+      return; // 教室页这次会话还没用过，不用管
+    }
+    final bool moved = _clampClassroomQueryToToday();
+    if (!moved) {
+      return;
+    }
+    _classroomBoard = null;
+    _classroomError = null;
+    notifyListeners();
+    await loadClassroomBoard(force: true);
+  }
+
+  /// 教室查询条件若指向**今天之前**的日期（应用隔夜挂在后台很常见），拉回今天。
+  ///
+  /// 与教室页日期条同一套口径：`week = term.weekOf(今天)`、`weekday = 今天.weekday`
+  /// （周日 = 7）。今天不在学期内（假期 / 未开学）就保持原样。
+  /// 返回是否动了条件。
+  bool _clampClassroomQueryToToday() {
+    final DateTime now = DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final int week = term.weekOf(today);
+    if (week < 1 || week > term.totalWeeks) {
+      return false;
+    }
+    final DateTime selected = term
+        .startOfWeek(_classroomQuery.week)
+        .add(Duration(days: _classroomQuery.weekday % 7));
+    if (!selected.isBefore(today)) {
+      return false;
+    }
+    _classroomQuery = _classroomQuery.copyWith(
+      week: week,
+      weekday: today.weekday,
+    );
+    return true;
+  }
 
   /// 查询教室空余情况（只读，不预约任何教室）。
   ///
   /// 结果**不落盘**：教室占用每周都在变，留一份旧数据比没有更危险。
+  ///
+  /// 并发规则：非强制请求（进页面兜底）撞上在途请求时直接让路；强制请求
+  /// （换条件）会顶掉在途的旧请求 —— 用 [_classroomRequestSeq] 保证晚到的
+  /// 旧结果不会把新条件下的状态盖掉。
   Future<void> loadClassroomBoard({bool force = false}) async {
-    if (_classroomLoading) {
-      return;
-    }
     if (_classroomBoard != null && !force) {
       return; // 本次会话已经查过，直接显示
     }
-
+    if (!force && _classroomLoading) {
+      return;
+    }
+    final int seq = ++_classroomRequestSeq;
+    // 快照条件：await 期间用户可能又改了 [ _classroomQuery]，这次请求只对
+    // 发起那一刻的条件负责。
+    final JwClassroomQuery query = _classroomQuery;
     _classroomLoading = true;
     _classroomError = null;
     notifyListeners();
 
     try {
-      _classroomBoard = await _client.fetchClassroomBoard(
-        campusId: _classroomQuery.campusId,
-        buildingId: _classroomQuery.buildingId,
-        week: _classroomQuery.week,
-        weekday: _classroomQuery.weekday,
+      final JwClassroomBoard board = await _client.fetchClassroomBoard(
+        campusId: query.campusId,
+        buildingId: query.buildingId,
+        week: query.week,
+        weekday: query.weekday,
       );
+      if (seq != _classroomRequestSeq) {
+        return; // 旧请求晚到，丢弃
+      }
+      _classroomBoard = board;
     } on JwException catch (error) {
+      if (seq != _classroomRequestSeq) {
+        return;
+      }
       _classroomError = error.message;
     } catch (error) {
+      if (seq != _classroomRequestSeq) {
+        return;
+      }
       _classroomError = '查询教室空余情况失败：$error';
     } finally {
-      _classroomLoading = false;
-      notifyListeners();
+      // 只有「仍是最后一次请求」才能收 loading 状态；旧请求收尾不动它，
+      // 否则会把还在途的新请求的加载态提前掐掉。
+      if (seq == _classroomRequestSeq) {
+        _classroomLoading = false;
+        notifyListeners();
+      }
     }
   }
 

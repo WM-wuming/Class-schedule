@@ -677,9 +677,9 @@ void main() {
       );
 
       expect(find.textContaining('提醒不会响铃'), findsOneWidget);
-      expect(find.text('去授权'), findsOneWidget);
+      expect(find.text('去设置'), findsOneWidget);
 
-      await tester.tap(find.text('去授权'));
+      await tester.tap(find.text('去设置'));
       await tester.pumpAndSettle();
       expect(ring.openSettingsCalls, 1);
     });
@@ -696,7 +696,7 @@ void main() {
 
       expect(find.text('响铃'), findsOneWidget);
       expect(find.textContaining('照常响铃'), findsOneWidget);
-      expect(find.text('去授权'), findsNothing);
+      expect(find.text('去设置'), findsNothing);
     });
 
     testWidgets('勿扰豁免状态未知（查不到）时两边都不显示', (
@@ -709,7 +709,7 @@ void main() {
         ring: FakeReminderRingPlatform(granted: null),
       );
 
-      expect(find.text('去授权'), findsNothing);
+      expect(find.text('去设置'), findsNothing);
       expect(find.text('响铃'), findsNothing);
     });
   });

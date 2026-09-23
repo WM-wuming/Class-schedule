@@ -81,8 +81,8 @@ class _KeepAliveGuideSheet extends StatelessWidget {
                   _GroupLabel('第一步 · 允许自启动'),
                   const _GuideCard(<String>[
                     '系统设置 → 应用管理 → 广应科课表 → 自启动，打开开关。',
-                    '小米/华为/荣耀/OPPO/vivo 等机型有独立的「自启动管理」入口，点下面的按钮直达。',
-                    'OPPO/一加/realme（ColorOS）：打开的是「手机管家」时，进「权限与隐私 → 自启动管理」找到本应用打开。',
+                    '点下面的按钮直达系统「应用信息」页（本应用详情），耗电管理、电池等设置都在里面。',
+                    'OPPO/一加/realme（ColorOS）：自启动开关在「手机管家 → 权限与隐私 → 自启动管理」，找到本应用打开。',
                   ]),
                   const SizedBox(height: 10),
                   _ActionRow(

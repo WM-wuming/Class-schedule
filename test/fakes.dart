@@ -586,8 +586,18 @@ class RecordingTransport {
   final String weekInfoHtml;
   final String timetableHtml;
   final String selectionHtml;
-  final String classroomHtml;
+
+  /// 教室查询返回的页面 —— **可变**：测试在两次请求之间改它，
+  /// 就能区分「先后两笔教室请求各自拿到了什么」。
+  String classroomHtml;
   final String loadkbHtml;
+
+  /// 挡住**下一个**教室请求的一次性门（null = 不拦）。
+  ///
+  /// 用法：赋一个未完成的 [Completer]，第一个教室请求会停在门上；
+  /// 测试安排好新请求后 `complete()`，让旧请求最后才返回 —— 用来验证
+  /// 晚到的旧结果不会覆盖新条件下的状态。
+  Completer<void>? classroomGate;
 
   /// 全部请求的方法。
   final List<String> methods = <String>[];
@@ -641,6 +651,12 @@ class RecordingTransport {
     }
 
     if (isClassroom) {
+      // 一次性门：测试用它拦住第一个教室请求（模拟慢响应），之后的请求直接过。
+      final Completer<void>? gate = classroomGate;
+      classroomGate = null;
+      if (gate != null) {
+        await gate.future;
+      }
       final Object? failure = classroomError;
       if (failure != null) {
         throw failure;

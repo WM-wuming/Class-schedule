@@ -1,7 +1,6 @@
 package wm.gykclass.com
 
 import android.app.NotificationManager
-import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -17,6 +16,9 @@ class MainActivity : FlutterActivity() {
     private val keepAliveChannel = "keep_alive"
     private val widgetChannel = "next_class_widget"
     private val ringChannel = "reminder_ring"
+
+    // 与 Dart 侧 class_notifier_io.dart 的 reminderChannelId 保持一致。
+    private val reminderChannelId = "class_reminder"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -155,125 +157,76 @@ class MainActivity : FlutterActivity() {
             false
         }
 
-    /** 有没有拿到「勿扰打扰」（通知策略访问）授权；拿不到 NotificationManager 算没有。 */
+    /**
+     * 有没有拿到「能让提醒在勿扰下响」的放行，两条路任通其一即可：
+     * ① 通知策略访问（勿扰豁免授权，老路子）；
+     * ② 「上课提醒」渠道开了「允许勿扰期间通知 / 允许打扰」（用户在渠道设置页
+     *    打开的开关，见 [openDndAccessSettings] 跳过去的那页）。
+     */
     private fun isDndAccessGranted(): Boolean =
         try {
-            (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)
-                ?.isNotificationPolicyAccessGranted ?: false
-        } catch (error: Exception) {
-            false
-        }
-
-    /** 跳去系统的「勿扰打扰」授权列表（用户在列表里找到本应用放行）。 */
-    private fun openDndAccessSettings(): Boolean =
-        try {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-            true
+            val manager = getSystemService(NOTIFICATION_SERVICE) as? NotificationManager
+            val byPolicy = manager?.isNotificationPolicyAccessGranted ?: false
+            val byChannel = try {
+                manager?.getNotificationChannel(reminderChannelId)?.canBypassDnd() ?: false
+            } catch (error: Exception) {
+                false
+            }
+            byPolicy || byChannel
         } catch (error: Exception) {
             false
         }
 
     /**
-     * 国产 ROM 的自启动管理没有标准入口，按已知组件名逐个试，
-     * 全部失败退回应用详情页（从那里也能走到电池/自启动）。
+     * 跳到能让提醒「在勿扰下照常响」的设置页。
+     *
+     * 之前跳系统的「勿扰访问」授权列表（ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS），
+     * 但新版 ColorOS 把它实现成了勿扰模式的开关页 —— 在那里只有「开/关勿扰」，
+     * 没有放行本应用的入口。改为三级兜底：
+     * ① 直达本应用「上课提醒」通知渠道的设置页（渠道 id 与
+     *    class_notifier_io.dart 的 reminderChannelId 一致），里面有
+     *    「允许勿扰期间通知 / 允许打扰」开关；
+     * ② 退到本应用的通知设置页（用户在渠道列表里手动找「上课提醒」）；
+     * ③ 再退回老的勿扰访问授权列表。
      */
-    private fun openAutoStartSettings(): Boolean {
-        val candidates = listOf(
-            // 小米 MIUI
-            ComponentName(
-                "com.miui.securitycenter",
-                "com.miui.permcenter.autostart.AutoStartManagementActivity"
-            ),
-            // 华为 EMUI / HarmonyOS
-            ComponentName(
-                "com.huawei.systemmanager",
-                "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
-            ),
-            ComponentName(
-                "com.huawei.systemmanager",
-                "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity"
-            ),
-            // 荣耀 HONOR（独立后系统管家包名换成 hihonor，Magic OS 自带自启动管理）
-            ComponentName(
-                "com.hihonor.systemmanager",
-                "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
-            ),
-            ComponentName(
-                "com.hihonor.systemmanager",
-                "com.hihonor.systemmanager.appcontrol.activity.StartupAppControlActivity"
-            ),
-            // OPPO ColorOS
-            ComponentName(
-                "com.coloros.safecenter",
-                "com.coloros.safecenter.permission.startup.StartupAppListActivity"
-            ),
-            ComponentName(
-                "com.oppo.safe",
-                "com.oppo.safe.permission.startup.StartupAppListActivity"
-            ),
-            // OPPO / 一加 / realme 新版 ColorOS（oplus 系包名）
-            ComponentName(
-                "com.oplus.safecenter",
-                "com.oplus.safecenter.permission.startup.StartupAppListActivity"
-            ),
-            // vivo OriginOS / FuntouchOS
-            ComponentName(
-                "com.vivo.permissionmanager",
-                "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
-            ),
-            // vivo / iQOO 的 i 管家（旧版包名）
-            ComponentName(
-                "com.iqoo.secure",
-                "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"
-            ),
-            // 一加（老 OxygenOS 的安全中心，自启动 = 按需启动管理）
-            ComponentName(
-                "com.oneplus.security",
-                "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"
-            ),
-            // 三星 One UI
-            ComponentName(
-                "com.samsung.android.lool",
-                "com.samsung.android.sm.ui.ram.AutoRunActivity"
-            ),
-            // 魅族 Flyme
-            ComponentName(
-                "com.meizu.safe",
-                "com.meizu.safe.security.SHOW_APPSEC"
+    private fun openDndAccessSettings(): Boolean {
+        val attempts =
+            listOf<() -> Unit>(
+                {
+                    startActivity(
+                        Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            .putExtra(Settings.EXTRA_CHANNEL_ID, reminderChannelId)
+                    )
+                },
+                {
+                    startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    )
+                },
+                {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                },
             )
-        )
-        for (component in candidates) {
+        for (attempt in attempts) {
             try {
-                val intent = Intent().setComponent(component)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(intent)
+                attempt()
                 return true
             } catch (error: Exception) {
-                // 这台机器上没有这个入口，试下一个。
+                // 这一级跳不了就试下一级
             }
         }
-        // 上面按 Activity 直达的候选全部未命中（新版 ColorOS 常年换包名/类名），
-        // 退而求其次：直接拉起手机管家 / 安全中心 app 本身 —— 自启动管理藏在
-        // 「手机管家 → 权限与隐私 → 自启动管理」，拉起管家比落应用详情页近得多。
-        val managerPackages = listOf(
-            "com.coloros.safecenter",
-            "com.oplus.safecenter",
-            "com.oneplus.security",
-            "com.realme.securitycheck",
-            "com.coloros.phonemanager"
-        )
-        for (pkg in managerPackages) {
-            try {
-                val launch = packageManager.getLaunchIntentForPackage(pkg)
-                if (launch != null) {
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(launch)
-                    return true
-                }
-            } catch (error: Exception) {
-                // 没装这个管家，试下一个。
-            }
-        }
-        return openAppDetailsSettings()
+        return false
     }
+
+    /**
+     * 直接打开系统设置的「应用信息」页。
+     *
+     * 之前按机型试自启动管理的专属 Activity（小米/华为/OPPO/一加…），但新版 ROM
+     * （尤其 ColorOS 13+）频繁改包名类名，命中率低还常落到错误页面；拉起手机管家
+     * 又要用户自己找两层。应用详情页是**所有机型都稳定可达**的起点——耗电管理
+     * 就在里面，自启动开关则按指引卡说的路径去手机管家找。
+     */
+    private fun openAutoStartSettings(): Boolean = openAppDetailsSettings()
 }
