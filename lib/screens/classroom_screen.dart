@@ -134,6 +134,11 @@ class _ClassroomScreenState extends State<ClassroomScreen> {
         onSelect: widget.onSelectTab,
       ),
       child: Column(
+        // 必须 stretch：FScaffold 把 child 放进 Expanded（松宽度约束），Column
+        // 宽度只取最宽子项 —— 手机上日期条 18 个 chip 超过屏宽撑满看不出，
+        // 屏幕过宽（平板 / 横屏 / 折叠屏展开）时内容窄于屏宽，蓝色头部就
+        // 盖不满整页。stretch 让 Column 与三个色块子项一律取满父约束宽。
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           _Header(
             controller: controller,
