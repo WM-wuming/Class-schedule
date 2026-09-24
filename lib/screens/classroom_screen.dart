@@ -130,6 +130,7 @@ class _ClassroomScreenState extends State<ClassroomScreen> {
         systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
       footer: homeNavBar(
+        context: context,
         current: widget.currentTab,
         onSelect: widget.onSelectTab,
       ),

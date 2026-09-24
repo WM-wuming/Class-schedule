@@ -105,6 +105,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
         ],
       ),
       footer: homeNavBar(
+        context: context,
         current: widget.currentTab,
         onSelect: widget.onSelectTab,
       ),

@@ -44,7 +44,11 @@ class ProfileScreen extends StatelessWidget {
           ),
         ),
       ),
-      footer: homeNavBar(current: currentTab, onSelect: onSelectTab),
+      footer: homeNavBar(
+        context: context,
+        current: currentTab,
+        onSelect: onSelectTab,
+      ),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: <Widget>[
@@ -297,7 +301,7 @@ class _InfoRow extends StatelessWidget {
 const String _repoUrl = 'https://github.com/WM-wuming/Class-schedule';
 
 /// 当前版本号。**发版时记得与 pubspec.yaml 的 version 同步改**。
-const String _appVersion = '1.1.56';
+const String _appVersion = '1.1.57';
 
 /// 「关于」弹层：版本信息 + GitHub 项目入口（顺手点个 Star）。
 Future<void> _showAboutSheet(BuildContext context) => showAppSheet<void>(

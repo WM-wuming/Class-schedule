@@ -64,6 +64,7 @@ class _CourseSelectionScreenState extends State<CourseSelectionScreen> {
         ),
       ),
       footer: homeNavBar(
+        context: context,
         current: widget.currentTab,
         onSelect: widget.onSelectTab,
       ),
