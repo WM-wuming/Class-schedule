@@ -9,6 +9,9 @@ import 'week.dart';
 /// 小组件是原生的 `AppWidgetProvider`（RemoteViews），它不会算周次、也不会认得
 /// 教务数据 —— Flutter 侧把「接下来几天要上的课」换算成带真实时间戳的条目推过去，
 /// 原生只负责按当前时间挑一条显示。见 `android/.../NextClassWidgetProvider.kt`。
+///
+/// 条目只带**时间戳**，不带「今天/明天/后天」这类文案：那种日子标签由原生按本机
+/// 日历现算 —— 数据推过来之后 App 可能好几天不再运行，写死标签会跟着错一天。
 @immutable
 class NextClassEntry {
   const NextClassEntry({
@@ -19,7 +22,6 @@ class NextClassEntry {
     required this.teacher,
     required this.periodLabel,
     required this.timeLabel,
-    required this.dayLabel,
   });
 
   final DateTime start;
@@ -34,9 +36,6 @@ class NextClassEntry {
   /// 时刻描述，例如「10:15-11:50」。
   final String timeLabel;
 
-  /// 相对今天的天数描述：「今天」「明天」「后天」。
-  final String dayLabel;
-
   Map<String, Object> toJson() => <String, Object>{
     'start': start.millisecondsSinceEpoch,
     'end': end.millisecondsSinceEpoch,
@@ -45,7 +44,6 @@ class NextClassEntry {
     'teacher': teacher,
     'period': periodLabel,
     'time': timeLabel,
-    'day': dayLabel,
   };
 
   @override
@@ -57,18 +55,19 @@ class NextClassEntry {
       other.location == location &&
       other.teacher == teacher &&
       other.periodLabel == periodLabel &&
-      other.timeLabel == timeLabel &&
-      other.dayLabel == dayLabel;
+      other.timeLabel == timeLabel;
 
   @override
-  int get hashCode => Object.hash(
-    start, end, name, location, teacher, periodLabel, timeLabel, dayLabel);
+  int get hashCode =>
+      Object.hash(start, end, name, location, teacher, periodLabel, timeLabel);
 }
 
 /// 往后数几天内找「接下来要上的课」。
 ///
 /// - 只保留「还没下课」的节次（正在上的课也在内，原生会把它显示成「正在上课」）；
-/// - 按开始时间升序，第一条就是小组件要突出显示的那条；
+/// - 按开始时间升序，第一条就是小组件要突出的那条；
+/// - 今天没课、后面几天有课 → 列表里只剩后面几天的课，原生据此显示
+///   「今天没有课了」（它按日期判断，不会把明天的课当成今天的）；
 /// - 学期外（假期）或三天内都没课 → 空列表，原生据此显示「没有课了可以放心玩了！」。
 List<NextClassEntry> buildNextClassEntries({
   required Term term,
@@ -78,7 +77,6 @@ List<NextClassEntry> buildNextClassEntries({
 }) {
   final List<NextClassEntry> entries = <NextClassEntry>[];
   final DateTime today = DateTime(now.year, now.month, now.day);
-  final List<String> dayLabels = <String>['今天', '明天', '后天'];
 
   for (int offset = 0; offset < horizonDays; offset++) {
     final DateTime day = today.add(Duration(days: offset));
@@ -109,7 +107,6 @@ List<NextClassEntry> buildNextClassEntries({
           teacher: session.course.teacher,
           periodLabel: session.periodsLabel,
           timeLabel: '${startPeriod.start}-${endPeriod.end}',
-          dayLabel: dayLabels[offset],
         ),
       );
     }

@@ -49,7 +49,6 @@ void main() {
       expect(first.end, DateTime(2026, 9, 21, 11, 50));
       expect(first.timeLabel, '10:15-11:50');
       expect(first.periodLabel, '第 3-4 节');
-      expect(first.dayLabel, '今天');
       expect(first.location, 'A-101');
       expect(first.teacher, '张三');
     });
@@ -78,7 +77,6 @@ void main() {
 
       expect(entries, hasLength(1));
       expect(entries.single.name, '大物');
-      expect(entries.single.dayLabel, '明天');
       expect(entries.single.start, DateTime(2026, 9, 22, 8, 20));
     });
 
@@ -153,20 +151,22 @@ void main() {
         return;
       }
 
-      final int baseWeek = controller.todayWeek;
+      // 周次得用**明天**所在的那一周：本课表以周日为一周第一天，周六跑测试时
+      // 「明天」（周日）已经落到下一周了，用今天所在的周会加不进这节课。
+      final int tomorrowWeek = controller.term.weekOf(tomorrow);
       await controller.addCustomCourse(
         name: '毛概',
         weekday: tomorrow.weekday,
         startPeriod: 3,
         endPeriod: 4,
-        startWeek: baseWeek,
-        endWeek: baseWeek,
+        startWeek: tomorrowWeek,
+        endWeek: tomorrowWeek,
       );
 
       expect(updater.pushes, greaterThanOrEqualTo(3));
       final NextClassEntry mine = updater.last
           .firstWhere((NextClassEntry e) => e.name == '毛概');
-      expect(mine.dayLabel, '明天');
+      expect(mine.start, tomorrow.add(const Duration(hours: 10, minutes: 15)));
       expect(mine.timeLabel, '10:15-11:50');
       controller.dispose();
     });

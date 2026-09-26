@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Calendar
 
 /**
  * 「下一节课」桌面小组件 —— 四种尺寸共用一套数据与刷新逻辑：
@@ -22,8 +23,10 @@ import org.json.JSONObject
  *
  * 数据来源是 Flutter 侧算好的 JSON（见 lib/models/next_class.dart，经 MainActivity
  * 写进 `next_class_widget` 这个 SharedPreferences），渲染只做三件事：
- * 1. 挑出第一条「还没下课」的条目显示（正在上的课显示成「正在上课」）；
- * 2. 一条都没有就显示空状态；
+ * 1. 挑出第一条「还没下课」的条目；
+ * 2. 它是**今天**的就显示它（正在上的课显示成「正在上课」）；落在别的日子就说明今天
+ *    没课了 —— 只显示「今天没有课了」提示，不把明天的课提前摆上来
+ *    （「是不是今天」按本机日历现算，所以数据放旧了也不会把明天的课显示成今天的）；
  * 3. 在这条课的边界（开课/下课时刻）定个闹钟精准刷新，兜底另有系统 30 分钟一拍的轮询。
  *
  * 各尺寸显示的是**同一份数据、同一条课、同一套完整信息**（2×2 的版式是参考基准，
@@ -90,13 +93,23 @@ internal object NextClassWidgets {
 
             val views = RemoteViews(context.packageName, variant.layoutId)
             if (current == null) {
-                showEmpty(views, variant)
+                // 数据里一条「还没下课」的都没有：假期，或者后面几天确实没课。
+                showEmpty(views, variant, todayFree = false)
                 cancelBoundaryAlarm(context)
+            } else if (!isSameDay(current.optLong("start"), now)) {
+                // 今天没课了、但后面几天还有课：只给「今天没有课了」提示，
+                // 不把明天的课提前摆上来（用户要的是无课提示，不是明天的课）。
+                showEmpty(views, variant, todayFree = true)
+                // 明天零点先翻一次页（明天的课要在零点就顶上来），再到那一节开课的
+                // 时刻刷成「正在上课」—— 取两个时刻里更早的那个。
+                scheduleBoundaryAlarm(
+                    context,
+                    minOf(current.optLong("start"), startOfNextDay(now))
+                )
             } else {
                 val start = current.optLong("start")
                 val end = current.optLong("end")
                 val inClass = now >= start
-                val day = current.optString("day", "今天")
                 val time = current.optString("time", "")
                 val period = current.optString("period", "")
                 val name = current.optString("name", "")
@@ -110,13 +123,10 @@ internal object NextClassWidgets {
                         views.setViewVisibility(R.id.widget_content, View.VISIBLE)
                         views.setTextViewText(
                             R.id.widget_header,
-                            when {
-                                inClass -> "正在上课"
-                                day == "今天" -> "下一节课"
-                                else -> "下一节"
-                            }
+                            if (inClass) "正在上课" else "下一节课"
                         )
-                        views.setTextViewText(R.id.widget_day, day)
+                        // 能走到这里的一定是今天的课：是不是今天由原生按日历判定。
+                        views.setTextViewText(R.id.widget_day, "今天")
                         views.setTextViewText(R.id.widget_name, name)
                         views.setTextViewText(
                             R.id.widget_time,
@@ -135,11 +145,8 @@ internal object NextClassWidgets {
                     Style.COMPACT -> {
                         // 横条两行装下与 2×2 相同的信息集：
                         // 第一行 = 课程名 + 状态·日期，第二行 = 时间·节次·地点·老师（超宽省略尾部）。
-                        val status = when {
-                            inClass -> "正在上课"
-                            else -> "下一节"
-                        }
-                        val statusLine = listOf(status, day)
+                        val status = if (inClass) "正在上课" else "下一节"
+                        val statusLine = listOf(status, "今天")
                             .filter { it.isNotEmpty() }
                             .joinToString(" · ")
                         val where = listOf(place, teacher)
@@ -156,12 +163,8 @@ internal object NextClassWidgets {
                     }
 
                     Style.COLUMN -> {
-                        // 窄竖条：状态一行（非今天直接显示日期），其余全部允许折行/省略。
-                        val status = when {
-                            inClass -> "正在上课"
-                            day == "今天" -> "下一节"
-                            else -> day
-                        }
+                        // 窄竖条：状态一行（显示的一定是今天的课），其余全部允许折行/省略。
+                        val status = if (inClass) "正在上课" else "下一节"
                         val where = listOf(place, teacher)
                             .filter { it.isNotEmpty() }
                             .joinToString(" · ")
@@ -215,26 +218,61 @@ internal object NextClassWidgets {
         }
     }
 
-    /** 各版式的空状态文案与可见性。 */
-    private fun showEmpty(views: RemoteViews, variant: Variant) {
+    /**
+     * 各版式的空状态文案与可见性。
+     *
+     * [todayFree] = 今天没课了、后面几天还有课 —— 提示只针对今天，别写成「没有课了」，
+     * 免得用户以为这周都放假了；false 才是「数据里后面几天都没课」（假期）。窄的两种
+     * 尺寸塞不下第二行，只说「今天没有课了」。
+     */
+    private fun showEmpty(views: RemoteViews, variant: Variant, todayFree: Boolean) {
         when (variant.style) {
             Style.CARD -> {
                 views.setViewVisibility(R.id.widget_content, View.GONE)
                 views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-                views.setTextViewText(R.id.widget_empty, "没有课了\n可以放心玩了！")
+                views.setTextViewText(
+                    R.id.widget_empty,
+                    if (todayFree) "今天没有课了\n可以放心玩了！" else "没有课了\n可以放心玩了！"
+                )
             }
 
             Style.COMPACT -> {
                 views.setViewVisibility(R.id.widget_small_content, View.GONE)
                 views.setViewVisibility(R.id.widget_small_empty, View.VISIBLE)
+                views.setTextViewText(
+                    R.id.widget_small_empty,
+                    if (todayFree) "今天没有课了" else "没有课了"
+                )
             }
 
             Style.COLUMN -> {
                 views.setViewVisibility(R.id.widget_tall_content, View.GONE)
                 views.setViewVisibility(R.id.widget_tall_empty, View.VISIBLE)
+                views.setTextViewText(
+                    R.id.widget_tall_empty,
+                    if (todayFree) "今天没有课了" else "没有课了"
+                )
             }
         }
     }
+
+    /** [millis] 和 [now] 是不是本机的同一天 —— 用来判断「下一节课是不是今天的」。 */
+    private fun isSameDay(millis: Long, now: Long): Boolean {
+        val target = Calendar.getInstance().apply { timeInMillis = millis }
+        val today = Calendar.getInstance().apply { timeInMillis = now }
+        return target.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+            target.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
+    }
+
+    /** 本机时区下「明天零点」的时刻 —— 今天没课时，靠它在零点把日界翻准。 */
+    private fun startOfNextDay(now: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = now
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        add(Calendar.DAY_OF_YEAR, 1)
+    }.timeInMillis
 
     private fun boundaryPendingIntent(context: Context): PendingIntent =
         PendingIntent.getBroadcast(
