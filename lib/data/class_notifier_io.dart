@@ -70,9 +70,48 @@ class FlutterClassReminderNotifier implements ClassReminderNotifier {
         ),
       );
       _initialized = true;
+      // 渠道必须提前建出来，不能等第一条通知真正弹出（见 [_ensureReminderChannel]）。
+      await _ensureReminderChannel();
       await _retireLegacyChannel();
     } catch (error) {
       debugPrint('初始化本地通知失败：$error');
+    }
+  }
+
+  /// 主动建一次「上课提醒」渠道。
+  ///
+  /// 插件的 `zonedSchedule` **只保存通知、不建渠道** —— 渠道要到闹钟响了、通知
+  /// 真正弹出的那一刻才由插件创建。在「已排期但还没响过」的这段空窗期里，
+  /// 渠道在系统眼里并不存在，两个依赖它的地方都会出问题：
+  /// 1. 「去设置」跳 `ACTION_CHANNEL_NOTIFICATION_SETTINGS` 时，系统找不到这个
+  ///    渠道，ColorOS 上直接给一个**空白页**（用户报的就是这个）；
+  /// 2. 勿扰豁免的渠道检查（`getNotificationChannel(id).canBypassDnd()`）永远是 false。
+  /// 所以启动时按 [_details] 的同一套参数预建 —— 渠道属性只在首次创建时生效，
+  /// **这里的参数必须与 [_details] 保持一致**，否则会把通知的属性钉错。
+  ///
+  /// 注意哪些才是**渠道级**属性：`AndroidNotificationChannel` 只认 importance、
+  /// 声音/震动/指示灯、showBadge、bypassDnd、audioAttributesUsage，插件的
+  /// `setupNotificationChannel` 也只写这几项。[_details] 里的 `visibility`（锁屏
+  /// 完整显示）与 `category`（闹钟）是**逐条通知**属性，由通知自己带、不进渠道，
+  /// 所以这里**不该**出现它们 —— 别照抄 [_details] 硬加。
+  Future<void> _ensureReminderChannel() async {
+    try {
+      final AndroidFlutterLocalNotificationsPlugin? android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      await android?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          reminderChannelId,
+          reminderChannelName,
+          description: reminderChannelDescription,
+          // 与 _details() 的 importance 一致：high 才有横幅；其余字段两边都用
+          // 默认值，别在这里单独改。
+          importance: Importance.high,
+        ),
+      );
+    } catch (error) {
+      debugPrint('预建通知渠道失败：$error');
     }
   }
 

@@ -178,6 +178,15 @@ class MainActivity : FlutterActivity() {
             false
         }
 
+    /** 「上课提醒」渠道建出来了吗；查不到就按没建处理（宁可不跳那一页）。 */
+    private fun reminderChannelExists(): Boolean =
+        try {
+            val manager = getSystemService(NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.getNotificationChannel(reminderChannelId) != null
+        } catch (error: Exception) {
+            false
+        }
+
     /**
      * 跳到能让提醒「在勿扰下照常响」的设置页。
      *
@@ -189,27 +198,34 @@ class MainActivity : FlutterActivity() {
      *    「允许勿扰期间通知 / 允许打扰」开关；
      * ② 退到本应用的通知设置页（用户在渠道列表里手动找「上课提醒」）；
      * ③ 再退回老的勿扰访问授权列表。
+     *
+     * ①之前先确认渠道确实存在：渠道不存在时系统的渠道设置页是一片空白
+     * （ColorOS 上就是这样），不如直接退到通知设置页。正常路径下渠道已由
+     * Dart 侧启动时预建好（见 class_notifier_io.dart 的 _ensureReminderChannel），
+     * 这里只是兜底。
      */
     private fun openDndAccessSettings(): Boolean {
-        val attempts =
-            listOf<() -> Unit>(
-                {
-                    startActivity(
-                        Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                            .putExtra(Settings.EXTRA_CHANNEL_ID, reminderChannelId)
-                    )
-                },
-                {
-                    startActivity(
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                    )
-                },
-                {
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                },
+        val attempts = mutableListOf<() -> Unit>()
+        // ① 渠道设置页。渠道不存在时系统给的是**空白页**，这种情况干脆不去。
+        if (reminderChannelExists()) {
+            attempts.add {
+                startActivity(
+                    Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                        .putExtra(Settings.EXTRA_CHANNEL_ID, reminderChannelId)
+                )
+            }
+        }
+        // ② 应用通知设置页 → ③ 老的勿扰访问授权列表。
+        attempts.add {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
             )
+        }
+        attempts.add {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        }
         for (attempt in attempts) {
             try {
                 attempt()
