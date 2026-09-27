@@ -1,0 +1,175 @@
+/* 广应科课表 —— README 界面稿样式
+   尺寸与配色直接取自 lib/theme/course_palette.dart、lib/widgets/timetable_grid.dart 等源码。 */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: transparent;
+}
+
+/* 手机外框：让截图看起来像真机 */
+.stage { width: 466px; height: 920px; display: flex; align-items: center; justify-content: center; }
+.phone {
+  width: 390px; height: 844px; border-radius: 46px; background: #0F1420; padding: 9px;
+  box-shadow: 0 20px 44px rgba(15, 20, 32, .30), 0 2px 8px rgba(15, 20, 32, .20);
+}
+.screen {
+  width: 100%; height: 100%; border-radius: 38px; overflow: hidden; background: #fff;
+  position: relative; display: flex; flex-direction: column;
+}
+
+/* 状态栏 */
+.sbar {
+  flex: none; height: 44px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px; font-size: 13px; font-weight: 600; background: #fff; color: #1F2430;
+}
+.sbar .sig { display: flex; align-items: center; gap: 5px; }
+
+/* 页头 */
+.hdr { flex: none; height: 52px; display: flex; align-items: center; padding: 0 16px; background: #fff; }
+.hdr .title { font-size: 19px; font-weight: 700; color: #1F2430; line-height: 1.1; }
+.hdr .grow { flex: 1; }
+.hdr .act { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; color: #1F2430; }
+.pill {
+  margin-left: 10px; display: flex; align-items: center; gap: 2px; padding: 5px 12px;
+  background: #FDE7E7; color: #D9534F; font-size: 13px; font-weight: 600; border-radius: 999px;
+}
+
+/* 日期条 */
+.strip { flex: none; height: 50px; display: flex; background: #fff; border-bottom: 1px solid #EDEDF1; }
+.strip .gutter { width: 40px; }
+.strip .dcell { flex: 1; display: flex; align-items: center; justify-content: center; }
+.daybox { padding: 4px 10px; border-radius: 10px; text-align: center; }
+.daybox .a { font-size: 12px; font-weight: 500; color: #8A8F9C; line-height: 1.1; }
+.daybox .b { font-size: 11px; color: #8A8F9C; line-height: 1.1; margin-top: 2px; }
+.dcell.today .daybox { background: #2C63D4; }
+.dcell.today .daybox .a { color: #fff; font-weight: 600; }
+.dcell.today .daybox .b { color: #fff; }
+
+/* 课表网格 */
+.gwrap { flex: 1; position: relative; background: #F5F5F7; overflow: hidden; }
+.grid { position: absolute; inset: 0; display: flex; }
+.gut { width: 40px; flex: none; background: #F7F7F9; }
+.gut .pcell { height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.gut .pcell .n { font-size: 10px; font-weight: 500; color: #1F2430; line-height: 1.1; }
+.gut .pcell .t { font-size: 9px; color: #8A8F9C; line-height: 1.1; margin-top: 3px; }
+.brk {
+  height: 26px; background: #EFEFF3; border-bottom: 1px solid #EDEDF1;
+  display: flex; align-items: center; justify-content: center; font-size: 9.5px; color: #8A8F9C;
+}
+.daycol { flex: 1; position: relative; border-right: 1px solid #EDEDF1; }
+.daycol.is-today { background: #F3F7FE; }
+.daycol .pcell { height: 62px; border-bottom: 1px solid #EDEDF1; }
+.card {
+  position: absolute; left: 3px; right: 3px; border-radius: 8px; border-left: 3px solid;
+  padding: 5px 4px 4px 6px; overflow: hidden;
+}
+.card .n { font-size: 12px; font-weight: 600; line-height: 1.18; }
+.card .m { font-size: 9.5px; color: #8A8F9C; line-height: 1.2; margin-top: 3px; }
+.card .m + .m { margin-top: 0; }
+
+.fab {
+  position: absolute; right: 16px; bottom: 16px; width: 54px; height: 54px; border-radius: 50%;
+  background: #2C63D4; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 12px rgba(44, 99, 212, .25);
+}
+
+/* 底部导航 */
+.nav { flex: none; height: 66px; background: #fff; border-top: 1px solid #EDEDF1; display: flex; padding: 5px 5px 10px; }
+.nav .item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; color: #8A8F9C; font-size: 11px;
+}
+.nav .item.on { color: #2C63D4; }
+
+/* 液态玻璃弹层（课程详情） */
+.scrim {
+  position: absolute; inset: 0; background: rgba(22, 27, 38, .20);
+  -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+  display: flex; align-items: center; justify-content: center;
+}
+.glass {
+  width: 340px; border-radius: 24px; padding: 14px 12px 18px 18px;
+  background: rgba(255, 255, 255, .82); border: 1px solid rgba(255, 255, 255, .65);
+  -webkit-backdrop-filter: blur(26px) saturate(170%); backdrop-filter: blur(26px) saturate(170%);
+  box-shadow: 0 20px 50px rgba(15, 20, 32, .22);
+}
+.glass .row1 { display: flex; align-items: center; }
+.glass .dot { width: 8px; height: 8px; border-radius: 50%; }
+.glass .kicker { font-size: 12.5px; font-weight: 600; color: #8A8F9C; margin-left: 7px; }
+.glass .cname { font-size: 24px; font-weight: 800; color: #1F2430; line-height: 1.2; margin: 8px 6px 0 0; }
+.hcard { background: #F5F5F7; border-radius: 14px; padding: 14px; margin-top: 14px; }
+.hcard .lab { font-size: 12px; color: #8A8F9C; }
+.hcard .big { font-size: 20px; font-weight: 700; color: #1F2430; margin-top: 3px; }
+.hcard .sub { font-size: 12.5px; color: #8A8F9C; margin-top: 2px; }
+.hcard .sep { height: 1px; background: rgba(0, 0, 0, .08); margin: 12px 0; }
+.info { display: flex; padding: 5px 0; }
+.info .k { width: 76px; font-size: 12.5px; color: #8A8F9C; flex: none; }
+.info .v { flex: 1; font-size: 14px; font-weight: 600; color: #1F2430; }
+.note { font-size: 12px; color: #8A8F9C; margin-top: 6px; }
+
+/* 登录页面 */
+.lbody { flex: 1; padding: 4px 16px 0; background: #fff; overflow: hidden; }
+.lhint {
+  display: flex; gap: 8px; background: #F3F7FE; border: 1px solid #D8E4F8; border-radius: 10px;
+  padding: 10px 12px; font-size: 12.5px; color: #3A4A66; line-height: 1.55;
+}
+.lhint b { font-weight: 600; }
+.lfield { margin-top: 18px; }
+.lfield .lb { font-size: 12.5px; color: #8A8F9C; margin-bottom: 6px; }
+.lfield .lv {
+  height: 46px; border: 1px solid #E4E6EC; border-radius: 11px; background: #fff;
+  display: flex; align-items: center; padding: 0 12px; font-size: 15px; color: #1F2430;
+}
+.lfield .lv.mono { letter-spacing: 2px; justify-content: space-between; }
+.lfield .ph { color: #A9B2C6; font-size: 14px; letter-spacing: 0; }
+.lcheck { display: flex; align-items: center; gap: 7px; padding: 10px 2px 0; }
+.lcheck .box {
+  width: 20px; height: 20px; border-radius: 5px; background: #2C63D4;
+  display: flex; align-items: center; justify-content: center;
+}
+.lcheck .lb2 { font-size: 13.5px; font-weight: 500; color: #1F2430; }
+.lcheck .lb3 { font-size: 11.5px; color: #8A8F9C; }
+.lbtn {
+  margin-top: 20px; height: 46px; border-radius: 11px; background: #2C63D4; color: #fff;
+  font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+}
+
+/* 教室状态页 */
+.roomhdr { flex: none; background: #3A5AA6; padding: 24px 16px 14px; color: #fff; }
+.roomhdr h1 { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chip { padding: 7px 12px; border-radius: 10px; font-size: 13px; font-weight: 500; background: rgba(255, 255, 255, .18); flex: 0 0 auto; white-space: nowrap; }
+.chip.on { background: #27407B; font-weight: 700; }
+.chips.scroll { flex-wrap: nowrap; overflow: hidden; margin-top: 10px; }
+.chips.dates { flex-wrap: nowrap; overflow: hidden; margin-top: 12px; }
+.roombody { flex: 1; background: #F5F5F7; padding: 12px 16px 0; display: flex; flex-direction: column; }
+.search {
+  height: 44px; border-radius: 12px; background: #fff; border: 1px solid #E4E6EC;
+  display: flex; align-items: center; padding: 0 12px; gap: 8px;
+  font-size: 14px; color: #8A8F9C;
+}
+.sum { font-size: 12px; color: #8A8F9C; margin: 8px 0 0; }
+.legend {
+  background: #fff; border-radius: 12px; padding: 10px 14px; margin: 10px 0 0;
+  display: flex; align-items: center; font-size: 12.5px; font-weight: 600; color: #1F2430;
+}
+.legend .grow { flex: 1; }
+.legend .gt { font-size: 12px; font-weight: 400; color: #8A8F9C; text-align: center; }
+.lgdot { width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.roomlist { flex: 1; overflow: hidden; padding: 10px 0 0; }
+.room {
+  background: #E9EDF6; border-radius: 14px; padding: 11px 14px; margin-bottom: 8px;
+  display: flex; align-items: center;
+}
+.room .nm { font-size: 14.5px; font-weight: 700; color: #1F2430; }
+.room .ex { font-size: 11.5px; color: #8A8F9C; margin-top: 2px; }
+.room .info-col { flex: 1; }
+.bars { display: flex; align-items: center; height: 24px; }
+.bars .b { width: 7px; height: 24px; border-radius: 3.5px; margin-right: 3px; }
+.bars .b:last-child { margin-right: 0; }
+.bars .grp { display: flex; margin-right: 10px; }
+.bars .grp:last-child { margin-right: 0; }
+.b-free { background: #7CC47F; }
+.b-busy { background: #E2636B; }

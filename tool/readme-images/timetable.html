@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>课表主界面</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body class="stage">
+  <div class="phone"><div class="screen" id="screen"></div></div>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      renderTimetable(document.getElementById('screen'), { tab: 0, fab: true });
+    });
+  </script>
+</body>
+</html>

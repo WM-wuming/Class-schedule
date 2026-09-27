@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>桌面小组件参考版式</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 980px; height: 620px; padding: 34px 40px;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      background: linear-gradient(160deg, #F2F5FB 0%, #E8EDF7 100%);
+      -webkit-font-smoothing: antialiased;
+    }
+    h2 { font-size: 19px; font-weight: 700; color: #1F2430; }
+    .sub { font-size: 12.5px; color: #7C8496; margin-top: 4px; }
+    .grid { display: flex; flex-wrap: wrap; margin-top: 22px; gap: 24px 30px; }
+    .cell { width: 434px; }
+    .cap { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .tag {
+      font-size: 12px; font-weight: 700; color: #2C63D4; background: #E4EDFD;
+      border-radius: 6px; padding: 3px 8px;
+    }
+    .cap .txt { font-size: 12.5px; color: #6B7385; }
+    .board {
+      height: 212px; border-radius: 18px; background: rgba(255, 255, 255, .55);
+      border: 1px solid #DDE3EF; display: flex; align-items: center; justify-content: center;
+    }
+    /* 小组件本体：深色卡片，尺寸/字号按 res/layout/next_class_widget*.xml 放大 1.4 倍渲染 */
+    .w { background: #1B2230; border-radius: 22px; display: flex; flex-direction: column; }
+    .w .r1 { display: flex; align-items: center; }
+    .w .hdr { color: #93A4BC; flex: 1; }
+    .w .name { color: #fff; font-weight: 700; }
+    .w .time { color: #7FB3FF; }
+    .w .place { color: #C6D2E2; }
+
+    /* 4×2 大尺寸 */
+    .w.big { width: 330px; height: 152px; padding: 15px 20px 17px; }
+    .w.big .hdr, .w.big .day { font-size: 15px; }
+    .w.big .name { font-size: 22px; margin-top: 4px; }
+    .w.big .time { font-size: 17px; margin-top: 3px; }
+    .w.big .place { font-size: 17px; margin-top: 2px; }
+
+    /* 2×2 方形 —— 信息参考版式 */
+    .w.sq { width: 152px; height: 152px; padding: 12px 17px 15px; }
+    .w.sq .hdr, .w.sq .day { font-size: 13px; }
+    .w.sq .name { font-size: 17px; margin-top: 4px; line-height: 1.25; }
+    .w.sq .time { font-size: 11px; margin-top: 3px; }
+    .w.sq .place { font-size: 12.5px; margin-top: 2px; }
+
+    /* 2×1 横条 */
+    .w.wide { width: 330px; height: 76px; padding: 10px 20px; justify-content: center; }
+    .w.wide .rowa { display: flex; align-items: baseline; }
+    .w.wide .name { font-size: 17px; flex: 1; }
+    .w.wide .st { font-size: 12.5px; color: #93A4BC; margin-left: 8px; }
+    .w.wide .info { font-size: 12.5px; color: #7FB3FF; margin-top: 3px; }
+
+    /* 1×2 竖条：宽度只有约 1 格，文案允许折行/省略 */
+    .w.tall { width: 96px; height: 152px; padding: 12px 12px; justify-content: center; }
+    .w.tall .st { font-size: 11px; color: #93A4BC; }
+    .w.tall .name { font-size: 14px; line-height: 1.25; margin-top: 3px; }
+    .w.tall .time { font-size: 11.5px; margin-top: 3px; }
+    .w.tall .place { font-size: 11px; margin-top: 3px; }
+
+    /* 单行省略：与原生 maxLines=1 / ellipsize=end 一致 */
+    .clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* 无课状态 */
+    .w.empty { align-items: center; justify-content: center; text-align: center; color: #DCE4F0; }
+    .w.empty .e1 { font-size: 17px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h2>桌面小组件 · 四种尺寸</h2>
+  <div class="sub">内容统一为 2×2 的「信息集」：状态 + 日期 / 课程名 / 时间 · 节次 / 地点 · 老师</div>
+
+  <div class="grid">
+    <div class="cell">
+      <div class="cap"><span class="tag">4×2</span><span class="txt">大尺寸 · 正在上课中</span></div>
+      <div class="board">
+        <div class="w big">
+          <div class="r1"><span class="hdr">正在上课</span><span class="day">今天</span></div>
+          <div class="name">高等数学</div>
+          <div class="time">10:15-11:50 · 第 3-4 节</div>
+          <div class="place">J1-101 · 张明</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="cap"><span class="tag">2×2</span><span class="txt">信息参考版式 · 四行完整显示</span></div>
+      <div class="board">
+        <div class="w sq">
+          <div class="r1"><span class="hdr">下一节课</span><span class="day">今天</span></div>
+          <div class="name">高等数学</div>
+          <div class="time clip">10:15-11:50 · 第 3-4 节</div>
+          <div class="place clip">J1-101 · 张明</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="cap"><span class="tag">2×1</span><span class="txt">横条 · 两行装下同一套信息</span></div>
+      <div class="board">
+        <div class="w wide">
+          <div class="rowa"><span class="name">高等数学</span><span class="st">下一节 · 今天</span></div>
+          <div class="info">10:15-11:50 · 第 3-4 节 · J1-101 · 张明</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="cap"><span class="tag">1×2</span><span class="txt">竖条 · 一列（时间行含节次）</span></div>
+      <div class="board">
+        <div class="w tall">
+          <div class="st">下一节</div>
+          <div class="name">高等数学</div>
+          <div class="time">10:15-11:50 · 第 3-4 节</div>
+          <div class="place">J1-101 · 张明</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
