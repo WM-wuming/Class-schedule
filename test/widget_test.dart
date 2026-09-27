@@ -8,6 +8,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 
+/// 课表打开时默认停在「本周」，7 个日期列表头随今天是哪天而变。
+///
+/// 测试别写死 `9/20` 这类日期：过了那一周就永久红，而且平时「跑得好好的」会
+/// 让人误以为是并发 flaky。这里按当前周现算。
+List<ScheduleDay> currentWeekDays() {
+  final Term term = defaultTerm;
+  final int week = term.weekOf(DateTime.now()).clamp(1, term.totalWeeks);
+  return term.daysOf(week);
+}
+
 void main() {
   group('学期换算', () {
     final Term term = defaultTerm;
@@ -135,8 +145,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
-    expect(find.text('9/26'), findsNothing);
-    expect(find.text('9/25'), findsOneWidget);
+    final List<ScheduleDay> days = currentWeekDays();
+    expect(find.text(days.last.dateLabel), findsNothing); // 周六那列已经收起
+    expect(find.text(days[5].dateLabel), findsOneWidget); // 周五还在
   });
 
   testWidgets('左右滑动可以翻周', (WidgetTester tester) async {
@@ -254,14 +265,16 @@ void main() {
         closeTo(TimetableGrid.gutterWidth / 2, 0.6),
       );
 
-      // 7 个日期列表头等宽平分剩余空间
-      double headerCenter(String date) => tester.getCenter(find.text(date)).dx;
+      // 7 个日期列表头等宽平分剩余空间（日期按当前周现算，不写死）
+      final List<ScheduleDay> days = currentWeekDays();
+      double headerCenter(ScheduleDay day) =>
+          tester.getCenter(find.text(day.dateLabel)).dx;
       expect(
-        headerCenter('9/21') - headerCenter('9/20'),
+        headerCenter(days[1]) - headerCenter(days[0]),
         closeTo(columnWidth, 0.6),
       );
       expect(
-        headerCenter('9/26') - headerCenter('9/20'),
+        headerCenter(days[6]) - headerCenter(days[0]),
         closeTo(columnWidth * 6, 0.6),
       );
     });

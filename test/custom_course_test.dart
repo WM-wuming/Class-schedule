@@ -6,12 +6,24 @@ import 'package:class_schedule/models/course.dart';
 import 'package:class_schedule/models/custom_course.dart';
 import 'package:class_schedule/models/reminder.dart';
 import 'package:class_schedule/state/schedule_controller.dart';
+import 'package:class_schedule/widgets/sheet_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fakes.dart';
+
+/// 取「最上层弹层」里的文字。
+///
+/// 裸用 `find.text` 会把课表页顶部那个「第 N 周」胶囊也匹配进来 —— 今天是第几周，
+/// 某个选项文字就可能与胶囊撞名（正好第 5 周那天 `第 5 周` 会撞出两个，`tap`
+/// 直接拒绝歧义的 target，测试固定在那天红）。这里用最后压上来的那个
+/// [SheetSurface] 把范围框住：弹层开着时是弹层本身，弹层关了就是课程表单。
+Finder inTopSheet(String text) => find.descendant(
+  of: find.byType(SheetSurface).last,
+  matching: find.text(text),
+);
 
 void main() {
   group('自建课程模型', () {
@@ -576,23 +588,25 @@ void main() {
       await tester.tap(find.text('从'));
       await tester.pumpAndSettle();
       expect(find.text('选择开始周'), findsOneWidget);
-      await tester.tap(find.text('第 5 周'));
+      // 用 inTopSheet 框住弹层：课表页顶部的周次胶囊可能也叫「第 5 周」。
+      await tester.tap(inTopSheet('第 5 周'));
       await tester.pumpAndSettle();
-      expect(find.text('第 5 周'), findsOneWidget);
+      expect(inTopSheet('第 5 周'), findsOneWidget);
 
       // 再把「到」选到第 3 周：结束被拉到开始（第 5 周）之前，开始周要跟着走到第 3 周。
       await tester.tap(find.text('到'));
       await tester.pumpAndSettle();
 
       expect(find.text('选择结束周'), findsOneWidget);
-      // 「第 1 周」在弹层里和背后表单「从」行各出现一次。
-      expect(find.text('第 ${CustomCourse.minWeek} 周'), findsWidgets);
+      // 「第 1 周」在弹层里出现一次（表单「从」「到」两行此时是 5 / 20 周）。
+      expect(inTopSheet('第 ${CustomCourse.minWeek} 周'), findsWidgets);
 
-      await tester.tap(find.text('第 3 周'));
+      await tester.tap(inTopSheet('第 3 周'));
       await tester.pumpAndSettle();
 
       expect(find.text('选择结束周'), findsNothing);
-      expect(find.text('第 3 周'), findsNWidgets(2));
+      // 「从」被拉到第 3 周、「到」也是第 3 周 —— 表单这两行各一个。
+      expect(inTopSheet('第 3 周'), findsNWidgets(2));
     });
 
     testWidgets('填好课程名保存后，课表上多出一门课', (WidgetTester tester) async {
