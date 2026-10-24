@@ -1,14 +1,12 @@
 <div id="top"></div>
 
-\[\!\[Contributors\]\[contributors-shield]\]\[contributors-url]  
-\[\!\[Forks\]\[forks-shield]\]\[forks-url]  
-\[\!\[Stargazers\]\[stars-shield]\]\[stars-url]  
-\[\!\[Issues\]\[issues-shield]\]\[issues-url]  
-\[\!\[Release\]\[release-shield]\]\[release-url]  
-\[\!\[Platform\]\[platform-shield]\]\[release-url]
-
-  
-  
+<!-- 项目 SHIELDS -->
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![Release][release-shield]][release-url]
+[![Platform][platform-shield]][release-url]
 <div align="center">  
   <a href="https://github.com/WM-wuming/Class-schedule">  
     <img src="images/logo.png" alt="广应科课表" width="88" height="88">  
@@ -360,3 +358,17 @@ WM-wuming（[@GitHub](https://github.com/WM-wuming)）
 - [正方教务系统](https://www.zfsoft.com) —— 数据来源（本项目仅做只读访问）
 
 <p align="right">(<a href="#top">返回顶部</a>)</p>
+
+<!-- 顶部徽章的图片与链接定义 -->
+
+[contributors-shield]: https://img.shields.io/github/contributors/WM-wuming/Class-schedule.svg?style=for-the-badge
+[contributors-url]: https://github.com/WM-wuming/Class-schedule/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/WM-wuming/Class-schedule.svg?style=for-the-badge
+[forks-url]: https://github.com/WM-wuming/Class-schedule/network/members
+[stars-shield]: https://img.shields.io/github/stars/WM-wuming/Class-schedule.svg?style=for-the-badge
+[stars-url]: https://github.com/WM-wuming/Class-schedule/stargazers
+[issues-shield]: https://img.shields.io/github/issues/WM-wuming/Class-schedule.svg?style=for-the-badge
+[issues-url]: https://github.com/WM-wuming/Class-schedule/issues
+[release-shield]: https://img.shields.io/github/v/release/WM-wuming/Class-schedule.svg?style=for-the-badge
+[release-url]: https://github.com/WM-wuming/Class-schedule/releases
+[platform-shield]: https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Web-1f6feb?style=for-the-badge

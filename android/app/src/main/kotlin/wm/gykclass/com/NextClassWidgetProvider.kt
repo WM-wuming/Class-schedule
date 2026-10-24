@@ -192,23 +192,33 @@ internal object NextClassWidgets {
                 scheduleBoundaryAlarm(context, if (inClass) end else start)
             }
 
-            // 点组件打开应用。
+            // 点组件打开应用。不用 getLaunchIntentForPackage 的返回值：那个 Intent 只带
+            // NEW_TASK，从组件点进来的启动路径上部分 ROM（ColorOS 等）不会按亲和性复用
+            // 现有任务栈，App 已在后台时会再起一个新实例（最近任务里多出一张卡）。
+            // 这里显式指向 MainActivity，保持与图标启动一致的 MAIN/LAUNCHER 形态，
+            // 并叠加 SINGLE_TOP | CLEAR_TOP：任务栈已存在就直接把活着的实例拉回前台
+            // （走 onNewIntent），绝不在上面再叠一个新实例。
             try {
-                context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
-                    views.setOnClickPendingIntent(
-                        when (variant.style) {
-                            Style.CARD -> R.id.widget_root
-                            Style.COMPACT -> R.id.widget_small_root
-                            Style.COLUMN -> R.id.widget_tall_root
-                        },
-                        PendingIntent.getActivity(
-                            context,
-                            0,
-                            it,
-                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                        )
-                    )
+                val launch = Intent(context, MainActivity::class.java).apply {
+                    action = Intent.ACTION_MAIN
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
                 }
+                views.setOnClickPendingIntent(
+                    when (variant.style) {
+                        Style.CARD -> R.id.widget_root
+                        Style.COMPACT -> R.id.widget_small_root
+                        Style.COLUMN -> R.id.widget_tall_root
+                    },
+                    PendingIntent.getActivity(
+                        context,
+                        0,
+                        launch,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                )
             } catch (ignored: Exception) {
             }
 
