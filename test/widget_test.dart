@@ -1,5 +1,6 @@
 import 'package:class_schedule/models/week.dart';
 import 'package:class_schedule/state/schedule_controller.dart';
+import 'package:class_schedule/widgets/sheet_surface.dart';
 import 'package:class_schedule/widgets/timetable_grid.dart';
 
 import 'fakes.dart';
@@ -429,9 +430,31 @@ void main() {
 
       expect(find.text('课程详情'), findsOneWidget);
       expect(find.text('J1-507'), findsWidgets);
-      // 周一那条「线性代数」在教务系统里是 4-7 周
-      expect(find.text('第 4-7 周'), findsOneWidget);
       expect(find.text('王可芸'), findsWidgets);
+
+      // 周次别写死具体区间：夹具是教务系统「第 4 周」的响应（周一那条线性代数写着
+      // 4-7 周），但课表默认停在本周，控制器会把区间扩到「至少包含本周」
+      // （见 ScheduleController._fetch），结束周随今天是第几周而变。
+      // 这里校验真正的不变量：弹层里的周次区间一定包含本周，这周的课不会变灰。
+      // 查找限定在弹层内：背后的周次胶囊也写着「第 N 周」，不限定会撞出两个。
+      final Term term = defaultTerm;
+      final int week = term.weekOf(DateTime.now()).clamp(1, term.totalWeeks);
+      final Finder weeksText = find.descendant(
+        of: find.byType(GlassDialogSurface),
+        matching: find.textContaining(RegExp(r'^第 \d+(-\d+)? 周$')),
+      );
+      expect(weeksText, findsOneWidget);
+      final String weeksLabel = tester.widget<Text>(weeksText).data!;
+      final RegExpMatch match = RegExp(
+        r'^第 (\d+)(?:-(\d+))? 周$',
+      ).firstMatch(weeksLabel)!;
+      final int startWeek = int.parse(match.group(1)!);
+      final int endWeek = int.parse(match.group(2) ?? match.group(1)!);
+      expect(
+        startWeek <= week && week <= endWeek,
+        isTrue,
+        reason: '弹层周次 $weeksLabel 应包含本周（第 $week 周）',
+      );
     });
 
     testWidgets('会话失效时给出可读错误和重试按钮', (WidgetTester tester) async {

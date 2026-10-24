@@ -85,19 +85,32 @@ class _DayHeader extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Text(
-                day.label,
-                style: TextStyle(
-                  color: foreground,
-                  fontSize: 12,
-                  height: 1.1,
-                  fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
+              // 列宽是七等分的：窄屏（或系统字号放大）时「周日」与「10/18」都放不下，
+              // 硬换行会把两行挤成四行、把日期条顶出高度。这里一律单行 + 缩到放得下，
+              // 宁可字号小一点，也不要出现黄黑溢出的条纹。
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  day.label,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 12,
+                    height: 1.1,
+                    fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
+                  ),
                 ),
               ),
               SizedBox(height: scale.px(2)),
-              Text(
-                day.dateLabel,
-                style: TextStyle(color: foreground, fontSize: 11, height: 1.1),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  day.dateLabel,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(color: foreground, fontSize: 11, height: 1.1),
+                ),
               ),
             ],
           ),
