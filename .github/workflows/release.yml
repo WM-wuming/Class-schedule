@@ -115,6 +115,13 @@ jobs:
 
       # android/gradle.properties 里 sdkDownload=false（国内网络下不让 AGP 卡在下载），
       # 于是 runner 上缺组件就硬报错，这里先按需补齐。已是预装的会直接跳过。
+      #
+      # 注意 cmake / ndk 是**硬依赖**，不能像上面那样 `|| true` 咽掉：
+      # shared_preferences_android 2.5.x 起底层换成 jni（Dart FFI + 原生库），构建时
+      # 会真的编译 C 代码，缺 CMake 就在 :jni:configureCMake* 这一步硬失败
+      # （runner 镜像自带的 CMake 是新版，而 AGP 默认点名要 3.22.1）。
+      # NDK 版本必须与 flutter.ndkVersion 对齐：Flutter 3.47.5 = 28.2.13676358，
+      # app/build.gradle.kts 里用的就是它，对不上 AGP 会直接报错。
       - name: 补齐 Android SDK 组件
         run: |
           SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
@@ -124,6 +131,9 @@ jobs:
           else
             yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
             "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
+            "$SDKMGR" "cmake;3.22.1" "ndk;28.2.13676358"
+            echo "--- cmake ---"; ls "$SDK/cmake" 2>/dev/null || true
+            echo "--- ndk ---";   ls "$SDK/ndk" 2>/dev/null || true
           fi
           echo "SDK 根目录：$SDK"
           ls "$SDK/platforms" 2>/dev/null || true
